@@ -1,0 +1,10 @@
+import type {Expense} from './data';
+export type Contribution={id:string;name:string;date:string;amount:number;is_public?:boolean};
+export type Vendor={id:string;name:string;business:string;categories:string;phone?:string;address?:string;notes?:string};
+export type Material={id:string;name:string;unit:string;category:string;partial?:boolean};
+export type Usage={id:string;material_id:string;date:string;quantity:number;location:string;notes?:string};
+export type Payment={id:string;expense_id:string;date:string;amount:number;method:string;reference?:string;notes?:string};
+export const stages=['Planning','Foundation','Plinth','Walls','Roofing','Electrical','Plumbing','Plaster','Flooring','Painting','Finishing','Completed'];
+export type Project={id:string;name:string;description:string;start_date:string|null;completion_date:string|null;stage:string;completed_stages:string[];notes?:string};
+export type Activity={id:string;table_name:string;record_id:string;action:string;created_at:string;before_data:Record<string,unknown>|null;after_data:Record<string,unknown>|null};
+export type Snapshot={admin:boolean;project:Project;expenses:Expense[];contributions:Contribution[];vendors:Vendor[];materials:Material[];consumption:Usage[];payments:Payment[];activity:Activity[]};

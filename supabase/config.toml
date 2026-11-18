@@ -1,0 +1,10 @@
+project_id = "gharhisab"
+[api]
+enabled = true
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+[db.seed]
+enabled = false
+[auth]
+enabled = true
+enable_signup = false
