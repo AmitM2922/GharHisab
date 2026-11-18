@@ -1,12 +1,13 @@
 import {supabase} from '../lib/supabase';
-import {Expense} from '../data';
+import {Expense,PaymentProof} from '../data';
 import {Snapshot} from '../types';
+import {maxPaymentImages,paymentImagePaths,paymentImageTypes,maxPaymentImageBytes} from '../lib/payment-images';
 export function check<T>({data,error}:{data:T;error:{message:string;code?:string}|null}):T{if(error)throw Object.assign(new Error(error.message),{code:error.code});return data}
 export async function readSnapshot():Promise<Snapshot>{
  const snapshot=check(await supabase!.rpc('app_snapshot')) as Snapshot;
- if(snapshot.admin)await Promise.all(snapshot.expenses.filter(e=>e.proof?.path).map(async e=>{
- const response=await supabase!.storage.from('receipts').createSignedUrl(e.proof!.path!,300,{download:e.proof!.name});
- if(!response.error)e.proof!.url=response.data.signedUrl;
+ if(snapshot.admin)await Promise.all([...snapshot.expenses.flatMap(e=>e.proof?[e.proof]:[]),...snapshot.payments.flatMap(p=>p.proofs||[])].filter(proof=>proof.path).map(async proof=>{
+ const response=await supabase!.storage.from('receipts').createSignedUrl(proof.path!,300,{download:proof.name});
+ if(!response.error)proof.url=response.data.signedUrl;
  }));return snapshot;
 }
 export async function saveExpense(input:Omit<Expense,'id'>,existing:Expense|null,key:string){
@@ -31,10 +32,43 @@ export async function saveExpense(input:Omit<Expense,'id'>,existing:Expense|null
  if(uploaded&&error instanceof Error&&'code' in error&&/^[0-9A-Z]{5}$/.test(String(error.code)))await supabase!.storage.from('receipts').remove([uploaded]);
  throw error}
 }
-export async function saveRecord(kind:string,p:Record<string,unknown>,key:string){
+async function savePayment(p:Record<string,unknown>,key:string,snapshot?:Snapshot){
+ const proofs=(p.proofs||[]) as PaymentProof[];
+ if(proofs.length>maxPaymentImages)throw new Error(`Attach up to ${maxPaymentImages} images per payment.`);
+ const old=snapshot?.payments.find(payment=>payment.id===p.id);
+ const uploaded:string[]=[],metadata:{path:string;name:string;type:string}[]=[];
+ try{
+  for(let index=0;index<proofs.length;index++){
+   const proof=proofs[index];let path=proof.path;
+   if(proof.url.startsWith('data:')){
+    const blob=await fetch(proof.url).then(r=>r.blob());
+    if(!paymentImageTypes.includes(blob.type)||blob.size<=0||blob.size>maxPaymentImageBytes)throw new Error('Payment images must be JPG, PNG or WebP files up to 5 MB.');
+    const auth=await supabase!.auth.getUser();if(auth.error||!auth.data.user)throw new Error('Please sign in again');
+    path=`${auth.data.user.id}/payments/${key}/${proof.clientId||index}`;
+    const result=await supabase!.storage.from('receipts').upload(path,blob,{contentType:blob.type,upsert:false});
+    if(result.error&&String((result.error as {statusCode?:string}).statusCode)!=='409')throw new Error(result.error.message);
+    if(!result.error)uploaded.push(path);
+   }
+   if(!path)throw new Error('Image is missing. Select it again before saving.');
+   metadata.push({path,name:proof.name,type:proof.type});
+  }
+  const {proofs:_proofs,...fields}=p;
+  const id=check(await supabase!.rpc('save_payment',{p:{...fields,proofs:metadata},request_id:key}));
+  const removed=paymentImagePaths(old?.proofs).filter(path=>!metadata.some(proof=>proof.path===path));
+  if(removed.length)await supabase!.storage.from('receipts').remove(removed);
+  return id;
+ }catch(error){
+  // A transport error can follow a successful commit. Preserve private objects
+  // unless PostgreSQL definitively rejected the transaction.
+  if(uploaded.length&&error instanceof Error&&'code' in error&&/^[0-9A-Z]{5}$/.test(String(error.code)))await supabase!.storage.from('receipts').remove(uploaded);
+  throw error;
+ }
+}
+export async function saveRecord(kind:string,p:Record<string,unknown>,key:string,snapshot?:Snapshot){
+ if(kind==='payments'&&snapshot?.paymentAttachments)return savePayment(p,key,snapshot);
  return check(await supabase!.rpc(kind==='payments'?'save_payment':'save_record',kind==='payments'?{p,request_id:key}:{kind,p,request_id:key}));
 }
-export async function removeRecord(kind:string,id:string,path?:string){
+export async function removeRecord(kind:string,id:string,paths:string[]=[]){
  check(await supabase!.rpc('delete_record',{kind,record_id:id}));
- if(path)await supabase!.storage.from('receipts').remove([path]);
+ if(paths.length)await supabase!.storage.from('receipts').remove([...new Set(paths)]);
 }
