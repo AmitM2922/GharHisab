@@ -8,7 +8,13 @@ export function periodStart(range:string,now=today()){
  return '';
 }
 export const roundMoney=(value:Decimal.Value)=>new Decimal(value).toDecimalPlaces(2,Decimal.ROUND_HALF_UP).toNumber();
-export const purchaseAmount=(quantity:Decimal.Value,rate:Decimal.Value)=>roundMoney(new Decimal(quantity).mul(rate));
+export const purchaseAmount=(quantity:Decimal.Value,rate:Decimal.Value,roundToRupee=false)=>new Decimal(quantity).mul(rate).toDecimalPlaces(roundToRupee?0:2,Decimal.ROUND_HALF_UP).toNumber();
+export function paymentProgress(amount:number,paid:number){
+ if(amount<=0)return {pending:0,percentage:0,label:'No expenses yet'};
+ const pending=roundMoney(new Decimal(amount).minus(paid));
+ const percentage=amount?Math.min(new Decimal(paid).div(amount).mul(100).toNumber(),100):0;
+ return {pending,percentage:pending>0?Math.min(percentage,99):percentage,label:pending<=0?'100% paid':percentage>=99.5?'Almost paid':`${Math.round(percentage)}% paid`};
+}
 export const sumMoney=(items:number[])=>items.reduce((s,n)=>s.add(n),new Decimal(0)).toDecimalPlaces(2).toNumber();
 export const totals=(expenses:Expense[])=>{const incurred=sumMoney(expenses.map(e=>e.amount)),paid=sumMoney(expenses.map(e=>e.paid));return {incurred,paid,pending:roundMoney(new Decimal(incurred).minus(paid))}};
 export function csvCell(value:unknown){let text=String(value??'');if(/^[=+\-@\t\r]/.test(text))text="'"+text;return '"'+text.replaceAll('"','""')+'"'}

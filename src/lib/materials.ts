@@ -2,7 +2,7 @@ import {Expense,MaterialLine} from '../data';
 import {sumMoney} from './accounting';
 export function materialLines(e:Expense):MaterialLine[]{
  if(e.category!=='Materials')return [];
- return e.items?.length?e.items:[{materialId:e.materialId,material:e.material,quantity:e.quantity,unit:e.unit,rate:e.rate,amount:e.amount}];
+ return e.items?.length?e.items:[{materialId:e.materialId,material:e.material,quantity:e.quantity,unit:e.unit,rate:e.rate,amount:e.amount,roundToRupee:false}];
 }
 export function materialPurchases(expenses:Expense[]){return expenses.flatMap(e=>materialLines(e).map(line=>({...line,expenseId:e.id,date:e.date,vendor:e.vendor})))}
 export function materialTotals(expenses:Expense[]){

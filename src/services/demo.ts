@@ -6,7 +6,7 @@ import {purchaseAmount,roundMoney,sumMoney} from '../lib/accounting';
 const vendors=[...new Set(seed.map(e=>e.vendor))].map((name,i)=>({id:'v'+i,name,business:'',categories:''}));
 const materials=[...new Set(seed.filter(e=>e.material).map(e=>e.material+'|'+e.unit))].map((m,i)=>({id:'m'+i,name:m.split('|')[0],unit:m.split('|')[1],category:m.split('|')[0]}));
 const expenses=seed.map(e=>({...e,version:1,is_public:true,vendorId:vendors.find(v=>v.name===e.vendor)!.id,materialId:materials.find(m=>m.name===e.material&&m.unit===e.unit)?.id}));
-let store:Snapshot={admin:true,schemaVersion:2,expenses,vendors,materials,consumption:materials.map((m,i)=>({id:'u'+i,material_id:m.id,date:'2026-11-17',quantity:({Cement:215,Steel:1520,Sand:6,Bricks:11500,Aggregate:3,Electrical:0} as Record<string,number>)[m.name]||0,location:'Site work'})).filter(c=>c.quantity>0),project:{id:'project',name:'Our dream home',description:'A family home built with care, one brick at a time.',start_date:'2026-08-05',completion_date:'2027-06-30',stage:'Walls',completed_stages:['Planning','Foundation','Plinth']},contributions:[{id:'c1',name:'Amit',date:'2026-08-01',amount:250000},{id:'c2',name:'Family member',date:'2026-09-01',amount:150000},{id:'c3',name:'Amit',date:'2026-10-01',amount:150000},{id:'c4',name:'Family member',date:'2026-11-01',amount:100000}],payments:expenses.filter(e=>e.paid>0).map(e=>({id:crypto.randomUUID(),expense_id:e.id,date:e.date,amount:e.paid,method:e.method})),activity:[]};
+let store:Snapshot={admin:true,schemaVersion:2,wholeRupeeRounding:true,expenses,vendors,materials,consumption:materials.map((m,i)=>({id:'u'+i,material_id:m.id,date:'2026-11-17',quantity:({Cement:215,Steel:1520,Sand:6,Bricks:11500,Aggregate:3,Electrical:0} as Record<string,number>)[m.name]||0,location:'Site work'})).filter(c=>c.quantity>0),project:{id:'project',name:'Our dream home',description:'A family home built with care, one brick at a time.',start_date:'2026-08-05',completion_date:'2027-06-30',stage:'Walls',completed_stages:['Planning','Foundation','Plinth']},contributions:[{id:'c1',name:'Amit',date:'2026-08-01',amount:250000},{id:'c2',name:'Family member',date:'2026-09-01',amount:150000},{id:'c3',name:'Amit',date:'2026-10-01',amount:150000},{id:'c4',name:'Family member',date:'2026-11-01',amount:100000}],payments:expenses.filter(e=>e.paid>0).map(e=>({id:crypto.randomUUID(),expense_id:e.id,date:e.date,amount:e.paid,method:e.method})),activity:[]};
 export const readDemo=()=>structuredClone(store);
 const keys=new Map<string,string>();
 function commit(next:Snapshot,kind:string,id:string,action:string){
@@ -20,7 +20,7 @@ export async function saveDemoExpense(input:Omit<Expense,'id'>,existing:Expense|
  const items:MaterialLine[]=input.category==='Materials'?(input.items?.length?input.items:materialLines({...input,id})).map(line=>{
  let material=next.materials.find(m=>m.name.toLowerCase()===line.material.toLowerCase()&&m.unit===line.unit);
  if(!material){material={id:crypto.randomUUID(),name:line.material,unit:line.unit,category:line.material};next.materials.push(material)}
- return {...line,materialId:material.id,amount:purchaseAmount(line.quantity,line.rate)};
+ return {...line,materialId:material.id,amount:purchaseAmount(line.quantity,line.rate,!!line.roundToRupee)};
  }):[];
  if(input.category==='Materials'&&(!items.length||items.some(i=>i.quantity<=0||i.rate<=0)))throw new Error('Each material needs a positive quantity and rate');
  const amount=input.category==='Materials'?sumMoney(items.map(i=>i.amount)):roundMoney(input.rate);

@@ -81,5 +81,24 @@ test('PostgreSQL migration: permissions, public privacy, accounting, idempotency
  await role();s=await snapshot();invoice=s.expenses[0];assert.equal(s.schemaVersion,2);assert.equal(invoice.items.length,3);assert.equal(invoice.amount,6900);assert(!invoice.proof);assert(!JSON.stringify(s).includes('PRIVATE_'));
  await role(admin);const hiddenMulti=await save({...multi,paid:0,is_public:false});await role();s=await snapshot();assert.equal(s.expenses.length,1);assert(s.materials.find((m:any)=>m.id===cementId).partial);assert(!s.consumption.some((c:any)=>c.id===multiUsage));
  await role(admin);await remove('expenses',hiddenMulti);await remove('material_consumption',multiUsage);await remove('expenses',multiId);assert.equal((await snapshot()).expenses.length,0);
+ // Reproduce the reported invoice and retain another genuinely paise-paid bill.
+ const roundedTarget='f67f6bf1-4bff-4c78-991d-e329117aba93';
+ const steelId=(await snapshot()).materials.find((m:any)=>m.name==='Steel').id;
+ const exactPayload={...expense,title:'Exact paise payment',material:'Steel',unit:'tonnes',quantity:1.5,rate:6526.67,paid:9790.01};
+ const exactId=await save(exactPayload);
+ await db.exec('reset role');await db.exec('begin');
+ await db.query("insert into public.expenses(id,request_key,title,date,category,material_id,vendor_id,quantity,rate,amount,method) values($1,$2,'Reported steel invoice','2026-11-08','Materials',$3,$4,1.5,6526.67,9790.01,'UPI')",[roundedTarget,randomUUID(),steelId,vid]);
+ await db.query('insert into public.expense_items(expense_id,material_id,position,quantity,rate) values($1,$2,1,1.5,6526.67)',[roundedTarget,steelId]);
+ await db.query("insert into public.payments(request_key,expense_id,date,amount,method) values($1,$2,'2026-11-08',9790,'UPI')",[randomUUID(),roundedTarget]);await db.exec('commit');
+ const paymentIds=(await snapshot()).payments.map((p:any)=>p.id).sort();
+ await db.exec(await readFile('supabase/migrations/202611180002_whole_rupee_rounding.sql','utf8'));
+ s=await snapshot();const repaired=s.expenses.find((e:any)=>e.id===roundedTarget);
+ assert.equal(repaired.amount,9790);assert.equal(repaired.paid,9790);assert.equal(repaired.items[0].quantity,1.5);assert.equal(repaired.items[0].roundToRupee,true);
+ assert.deepEqual(s.payments.map((p:any)=>p.id).sort(),paymentIds);
+ assert.equal(s.expenses.find((e:any)=>e.id===exactId).amount,9790.01);
+ await role(admin);await assert.rejects(save({...exactPayload,id:exactId,version:1,items:[{material:'Steel',unit:'tonnes',quantity:1.5,rate:6526.67,roundToRupee:true}]}),/exceeds/);
+ const roundedId=await save({...exactPayload,title:'Rounded steel invoice',paid:9790,items:[{material:'Steel',unit:'tonnes',quantity:1.5,rate:6526.67,roundToRupee:true}]});
+ const rounded=(await snapshot()).expenses.find((e:any)=>e.id===roundedId);assert.equal(rounded.amount,9790);assert.equal(rounded.items[0].amount,9790);assert.equal(rounded.paid,9790);
+ await role();assert.equal((await snapshot()).wholeRupeeRounding,true);
  }finally{await db.close()}
 });

@@ -43,3 +43,16 @@ test('multiple materials and manual entry remain one invoice with correct stock 
  const details=page.getByRole('dialog',{name:'Transaction details'});await expect(details.locator('.invoice-material-row')).toHaveCount(3);await expect(details.locator('.transaction-amount h3')).toHaveText('₹7,700');await expect(details.locator('.payment-duo strong').last()).toHaveText('₹5,700');await details.getByRole('button',{name:'Edit expense'}).click();await expect(form.getByLabel('Cement quantity',{exact:true})).toHaveValue('10');await expect(form.getByLabel('Waterproofing compound rate per unit')).toHaveValue('350');await form.getByRole('button',{name:'Cancel',exact:true}).click();
  await page.getByRole('navigation',{name:'Mobile navigation'}).getByRole('link',{name:'Materials',exact:true}).click();const inventory=page.locator('.inventory').filter({has:page.getByRole('heading',{name:'Waterproofing compound',exact:true})});await expect(inventory.locator('.stock-number')).toContainText('2');await expect(inventory).toContainText('₹700');
 });
+test('whole-rupee totals settle correctly and exact paise balances never show 100% paid',async({page})=>{
+ for(const rounded of [true,false]){
+  await page.goto('/');await page.getByRole('button',{name:'Add expense',exact:true}).first().click();
+  const form=page.getByRole('dialog',{name:'Expense form'});const title=rounded?'Rounded steel cost':'Exact steel cost';
+  await form.getByLabel('Expense title').fill(title);await form.getByRole('button',{name:'Choose materials'}).click();await form.getByRole('checkbox',{name:'Steel',exact:true}).check();await form.getByRole('button',{name:'Done selecting'}).click();
+  await form.getByLabel('Steel quantity',{exact:true}).fill('1.5');await form.getByLabel('Steel rate per unit').fill('6526.67');await expect(form.getByRole('checkbox',{name:'Steel round total to whole rupees'})).toBeChecked();
+  if(!rounded)await form.getByRole('checkbox',{name:'Steel round total to whole rupees'}).uncheck();
+  await expect(form.locator('.calculated strong')).toHaveText(rounded?'₹9,790':'₹9,790.01');await form.getByLabel('Vendor / contractor').fill('Steel rounding supplier');await form.getByLabel('Initial amount paid').fill('9790');await form.getByRole('button',{name:'Save expense'}).click();await expect(form).toHaveCount(0);
+  await page.getByRole('navigation',{name:'Mobile navigation'}).getByRole('link',{name:'Expenses'}).click();await page.getByLabel('Search transactions').fill(title);await page.getByRole('row',{name:`View ${title}`}).click();
+  const details=page.getByRole('dialog',{name:'Transaction details'});await expect(details.locator('.transaction-id .badge')).toHaveText(rounded?'Paid':'Partially paid');await expect(details.locator('.payment-duo strong').last()).toHaveText(rounded?'₹0':'₹0.01');await expect(details.locator('.payment-breakdown .detail-section-title>span')).toHaveText(rounded?'100% paid':'Almost paid');
+  await details.getByRole('button',{name:'Close transaction details'}).click();
+ }
+});

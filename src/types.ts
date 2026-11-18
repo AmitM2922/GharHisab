@@ -7,4 +7,4 @@ export type Payment={id:string;expense_id:string;date:string;amount:number;metho
 export const stages=['Planning','Foundation','Plinth','Walls','Roofing','Electrical','Plumbing','Plaster','Flooring','Painting','Finishing','Completed'];
 export type Project={id:string;name:string;description:string;start_date:string|null;completion_date:string|null;stage:string;completed_stages:string[];notes?:string};
 export type Activity={id:string;table_name:string;record_id:string;action:string;created_at:string;before_data:Record<string,unknown>|null;after_data:Record<string,unknown>|null};
-export type Snapshot={admin:boolean;schemaVersion?:number;project:Project;expenses:Expense[];contributions:Contribution[];vendors:Vendor[];materials:Material[];consumption:Usage[];payments:Payment[];activity:Activity[]};
+export type Snapshot={admin:boolean;schemaVersion?:number;wholeRupeeRounding?:boolean;project:Project;expenses:Expense[];contributions:Contribution[];vendors:Vendor[];materials:Material[];consumption:Usage[];payments:Payment[];activity:Activity[]};
