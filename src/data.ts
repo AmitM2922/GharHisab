@@ -1,5 +1,6 @@
 export type PaymentProof = {name:string;type:string;url:string;path?:string};
-export type Expense = { id: string; date: string; title: string; category: string; material: string; quantity: number; unit: string; rate: number; amount: number; paid: number; vendor: string; method: string; proof?:PaymentProof;version?:number;materialId?:string;vendorId?:string;description?:string;notes?:string;is_public?:boolean;created_at?:string;labour?:{work_type:string;workers?:number;days?:number;daily_rate?:number;period_end?:string} };
+export type MaterialLine={id?:string;materialId?:string;material:string;unit:string;quantity:number;rate:number;amount:number};
+export type Expense = { id: string; date: string; title: string; category: string; material: string; quantity: number; unit: string; rate: number; amount: number; paid: number; vendor: string; method: string; proof?:PaymentProof;items?:MaterialLine[];version?:number;materialId?:string;vendorId?:string;description?:string;notes?:string;is_public?:boolean;created_at?:string;labour?:{work_type:string;workers?:number;days?:number;daily_rate?:number;period_end?:string} };
 export const money = (n: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits:0,maximumFractionDigits: 2 }).format(n);
 export const status = (e: Expense) => e.paid >= e.amount ? 'Paid' : e.paid > 0 ? 'Partially paid' : 'Unpaid';
 const records = [

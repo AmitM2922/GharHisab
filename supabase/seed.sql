@@ -55,4 +55,6 @@ insert into public.material_consumption(request_key,material_id,date,quantity,lo
 insert into public.material_consumption(request_key,material_id,date,quantity,location) values('494085a2-23d9-4449-9c54-acb246d7fdb9','4583e96c-2ffe-48f2-b50b-87cc053bee9d','2026-11-17',3,'Demo site work');
 insert into public.contributions(request_key,name,date,amount) values('9f2615a9-e747-4cd1-bb61-62b5f35ae6a0','Amit','2026-11-17',400000);
 insert into public.contributions(request_key,name,date,amount) values('caf892a1-712f-4e06-8b99-c3d2dd98d44e','Family member','2026-11-17',250000);
+insert into public.expense_items(expense_id,material_id,position,quantity,rate)
+ select id,material_id,1,quantity,rate from public.expenses where category='Materials';
 commit;

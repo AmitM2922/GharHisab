@@ -1,3 +1,4 @@
+import {materialTotals} from '../lib/materials';
 import {useState} from 'react';
 import {Download,Printer} from 'lucide-react';
 import {useWorkspace} from '../app/Workspace';
@@ -5,7 +6,8 @@ import {Expense,money} from '../data';
 import {downloadCsv,periodStart,sumMoney} from '../lib/accounting';
 const groups=['Daily expenses','Weekly expenses','Monthly expenses','Category expenses','Material purchases','Material consumption','Contractor costs','Vendor spending','Payment history','Pending dues','Contributions'];
 export default function Reports({expenses,range}:{expenses:Expense[];range:string}){const w=useWorkspace();const [report,setReport]=useState(groups[0]);const from=periodStart(range);let headings:string[]=[],rows:(string|number)[][]=[];const current=(date:string)=>!from||date>=from;
- if(report==='Material consumption'){headings=['Date','Material','Quantity','Unit','Activity / location'];rows=w.data!.consumption.filter(c=>current(c.date)).map(c=>{const m=w.data!.materials.find(m=>m.id===c.material_id);return [c.date,m?.name||'',c.quantity,m?.unit||'',c.location]})}
+ if(report==='Material purchases'){headings=['Material','Unit','Purchased quantity','Purchase cost (INR)'];rows=materialTotals(expenses).map(m=>[m.name,m.unit,m.quantity,m.cost])}
+ else if(report==='Material consumption'){headings=['Date','Material','Quantity','Unit','Activity / location'];rows=w.data!.consumption.filter(c=>current(c.date)).map(c=>{const m=w.data!.materials.find(m=>m.id===c.material_id);return [c.date,m?.name||'',c.quantity,m?.unit||'',c.location]})}
  else if(report==='Payment history'){headings=['Date','Expense','Method','Paid (INR)'];rows=w.data!.payments.filter(p=>current(p.date)).map(p=>[p.date,w.data!.expenses.find(e=>e.id===p.expense_id)?.title||'',p.method,p.amount])}
  else if(report==='Contributions'){headings=['Date','Contributor','Amount (INR)'];rows=w.data!.contributions.filter(c=>current(c.date)).map(c=>[c.date,c.name,c.amount])}
  else if(['Daily expenses','Weekly expenses','Monthly expenses','Category expenses','Vendor spending','Material purchases'].includes(report)){

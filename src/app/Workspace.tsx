@@ -17,7 +17,7 @@ export function WorkspaceProvider({children}:{children:ReactNode}){
  async function refresh(){return query.refetch({throwOnError:true})}
  function requireAdmin(){if(!admin)throw new Error('Only the administrator can change records')}
  const value:Context={data:query.data,admin,demo,configured,loading:!ready||query.isLoading,error:query.error,refresh,togglePreview:()=>{if(demo)setPreviewAdmin(a=>!a)},
- async saveExpense(p,old,key){requireAdmin();const result=await(demo?saveDemoExpense(p,old,key):api.saveExpense(p,old,key));await refresh();return result},
+ async saveExpense(p,old,key){requireAdmin();if(!demo&&(p.items?.length||0)>1&&query.data?.schemaVersion!==2)throw new Error('Multiple materials are not enabled for this project yet. Contact the administrator.');const result=await(demo?saveDemoExpense(p,old,key):api.saveExpense(p,old,key));await refresh();return result},
  async saveRecord(kind,p,key){requireAdmin();const result=await(demo?saveDemoRecord(kind,p,key):api.saveRecord(kind,p,key));await refresh();return result},
  async remove(kind,id,path){requireAdmin();await(demo?removeDemoRecord(kind,id):api.removeRecord(kind,id,path));await refresh()},
  async signOut(){if(demo){setPreviewAdmin(false);return}if(supabase){await supabase.auth.signOut();setSession(null);cache.clear()}}

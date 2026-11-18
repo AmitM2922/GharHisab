@@ -25,6 +25,15 @@ test('PostgreSQL migration: permissions, public privacy, accounting, idempotency
  const save=async(p:any,key=randomUUID())=>(await db.query<{id:string}>('select public.save_expense($1::jsonb,$2::uuid) id',[JSON.stringify(p),key])).rows[0].id;
  const record=async(kind:string,p:any,key=randomUUID())=>(await db.query<{id:string}>('select public.save_record($1,$2::jsonb,$3::uuid) id',[kind,JSON.stringify(p),key])).rows[0].id;
  const remove=async(kind:string,id:string)=>db.query('select public.delete_record($1,$2::uuid)',[kind,id]);
+ // Migrate an existing invoice rather than testing only an empty installation.
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[admin]);
+ const legacy=await save(expense);const legacyBefore=(await snapshot()).expenses[0];
+ await db.exec(await readFile('supabase/migrations/202611180001_material_lines.sql','utf8'));
+ const migrated=(await snapshot()).expenses.find((e:any)=>e.id===legacy);
+ assert.equal(migrated.amount,legacyBefore.amount);assert.equal(migrated.paid,legacyBefore.paid);
+ assert.equal(migrated.items.length,1);assert.equal(migrated.items[0].quantity,100);
+ assert.equal(migrated.items[0].materialId,legacyBefore.materialId);
+ await remove('expenses',legacy);
  await role();assert.equal((await snapshot()).admin,false);assert.equal((await snapshot()).expenses.length,0);
  await assert.rejects(save(expense),/permission denied/);
  await role(other);await assert.rejects(save(expense),/administrator/);
@@ -46,7 +55,7 @@ test('PostgreSQL migration: permissions, public privacy, accounting, idempotency
  assert.equal((await snapshot()).expenses[0].amount,38500);
  await role();s=await snapshot();assert.equal(s.expenses[0].paid,13000);assert.equal(s.payments.length,2);assert.equal(s.expenses[0].description,'Public description');assert.equal(s.activity.length,0);
  assert(!JSON.stringify(s).includes('PRIVATE_'));
- for(const table of ['expenses','vendors','payments','receipt_metadata','admin_profiles','activity_logs','material_consumption','project_settings','contributions','materials','labour_entries'])await assert.rejects(db.query('select * from public.'+table),/permission denied/);
+ for(const table of ['expenses','expense_items','vendors','payments','receipt_metadata','admin_profiles','activity_logs','material_consumption','project_settings','contributions','materials','labour_entries'])await assert.rejects(db.query('select * from public.'+table),/permission denied/);
  await assert.rejects(db.exec("insert into storage.objects(bucket_id,name) values('receipts','unauthorized/image')"),/row-level security/);
  await role(other);await assert.rejects(db.exec("insert into storage.objects(bucket_id,name) values('receipts','unauthorized/image')"),/row-level security/);
  await assert.rejects(db.query('insert into public.admin_profiles(user_id) values($1)',[other]),/permission denied/);
@@ -57,5 +66,20 @@ test('PostgreSQL migration: permissions, public privacy, accounting, idempotency
  await role();s=await snapshot();assert(!s.expenses.some((e:any)=>e.id===hidden));assert.equal(s.materials[0].partial,true);assert.equal(s.consumption.length,0);
  await role(admin);await remove('material_consumption',usage);await remove('expenses',hidden);await remove('expenses',id);s=await snapshot();assert.equal(s.expenses.length,0);assert.equal(s.payments.length,0);assert(s.activity.some((a:any)=>a.action==='DELETE'));
  await assert.rejects(remove('expenses',randomUUID()),/not found/);
+ const multiKey=randomUUID();const multi={...expense,title:'Multi-material invoice',paid:2000,items:[{material:'Cement',quantity:10,unit:'bags',rate:400},{material:'Steel',quantity:50,unit:'kg',rate:60},{material:'Waterproofing compound',quantity:2,unit:'litres',rate:350}]};
+ const multiId=await save(multi,multiKey);assert.equal(await save(multi,multiKey),multiId);
+ s=await snapshot();assert.equal(s.expenses.length,1);let invoice=s.expenses[0];assert.equal(invoice.amount,7700);assert.equal(invoice.paid,2000);assert.equal(invoice.items.length,3);assert.equal(s.payments.length,1);
+ const cementId=invoice.items.find((i:any)=>i.material==='Cement').materialId;
+ const multiUsage=await record('material_consumption',{material_id:cementId,date:'2026-11-18',quantity:8,location:'Multi-material work'});
+ await assert.rejects(save({...multi,id:multiId,version:1,items:multi.items.slice(1)}),/exceeds/);
+ assert.equal((await snapshot()).expenses[0].items.length,3);
+ await save({...multi,id:multiId,version:1,items:[{...multi.items[0],quantity:8},...multi.items.slice(1)]});
+ invoice=(await snapshot()).expenses[0];assert.equal(invoice.amount,6900);assert.equal(invoice.paid,2000);
+ await db.query("insert into storage.objects(bucket_id,name) values('receipts',$1)",[admin+'/multi-proof']);
+ await save({...multi,id:multiId,version:2,items:[{...multi.items[0],quantity:8},...multi.items.slice(1)],proof:{path:admin+'/multi-proof',name:'upi.png',type:'image/png'}});
+ assert.equal((await snapshot()).expenses[0].proof.path,admin+'/multi-proof');
+ await role();s=await snapshot();invoice=s.expenses[0];assert.equal(s.schemaVersion,2);assert.equal(invoice.items.length,3);assert.equal(invoice.amount,6900);assert(!invoice.proof);assert(!JSON.stringify(s).includes('PRIVATE_'));
+ await role(admin);const hiddenMulti=await save({...multi,paid:0,is_public:false});await role();s=await snapshot();assert.equal(s.expenses.length,1);assert(s.materials.find((m:any)=>m.id===cementId).partial);assert(!s.consumption.some((c:any)=>c.id===multiUsage));
+ await role(admin);await remove('expenses',hiddenMulti);await remove('material_consumption',multiUsage);await remove('expenses',multiId);assert.equal((await snapshot()).expenses.length,0);
  }finally{await db.close()}
 });
