@@ -1,26 +1,133 @@
-import {paymentProgress} from './lib/accounting';
-import {sumMoney,totals} from './lib/accounting';
-import {useWorkspace} from './app/Workspace';
-import {useEffect,useRef,useState} from 'react';
-import {motion,useReducedMotion} from 'framer-motion';
-import {ArrowUpRight,IndianRupee,Boxes,HardHat,Receipt,Clock3,House,Check,Sparkles} from 'lucide-react';
-import {Expense,money} from './data';
+import {useMemo} from 'react';
+import {ArrowUpRight,Boxes,CalendarDays,ChevronDown,ChevronRight,Clock3,HandCoins,HardHat,ReceiptText,Wallet} from 'lucide-react';
+import {NavLink} from 'react-router-dom';
+import {money} from './data';
+import {dateRanges,periodBounds,sumMoney,totals} from './lib/accounting';
+import {displayBounds,displayDate,paymentHistoryLink} from './lib/history-filters';
+import {latestPayment,type PaymentEntry} from './lib/payment-ledger';
+import type {Snapshot} from './types';
+import PaidToday from './components/PaidToday';
+import CategoryPhoto from './components/CategoryPhoto';
 
-export function AnimatedMoney({value}:{value:number}){
- const reduced=useReducedMotion();const [shown,setShown]=useState(()=>reduced?value:0);const previous=useRef(0);
- useEffect(()=>{if(reduced){setShown(value);previous.current=value;return}const from=previous.current;const start=performance.now();let frame:number;const tick=(time:number)=>{const progress=Math.min((time-start)/650,1);setShown(from+(value-from)*(1-Math.pow(1-progress,3)));if(progress<1)frame=requestAnimationFrame(tick);else previous.current=value};frame=requestAnimationFrame(tick);return()=>cancelAnimationFrame(frame)},[value,reduced]);
- return <span aria-label={money(value)}><span aria-hidden="true">{money(shown)}</span></span>
-}
-export default function OverviewHighlights({expenses,admin,range,onExplore}:{expenses:Expense[];admin:boolean;range:string;onExplore:(filter:string)=>void}){
- const w=useWorkspace(),project=w.data!.project;
- const sum=(category?:string)=>sumMoney(expenses.filter(e=>!category||e.category===category).map(e=>e.paid));
- const {incurred,paid,pending}=totals(expenses),unpaid=expenses.filter(e=>e.paid<e.amount).length;
- const cards=[{label:'Total expenses',value:sum(),icon:IndianRupee,note:`Paid amounts only · ${expenses.length} invoices`,color:'blue',filter:'All categories'},
- {label:'Material expenses',value:sum('Materials'),icon:Boxes,note:'Paid towards material invoices',color:'amber',filter:'Materials'},
- {label:'Contractor costs',value:sum('Contractor costs'),icon:HardHat,note:'Paid towards contractor invoices',color:'purple',filter:'Contractor costs'},
- {label:'Other expenses',value:sum('Other'),icon:Receipt,note:'Paid for services & site costs',color:'teal',filter:'Other'},
- {label:'Pending dues',value:pending,icon:Clock3,note:`${unpaid} ${unpaid===1?'invoice needs':'invoices need'} payment`,color:'rose',filter:'Pending dues'}];
- const progress=paymentProgress(incurred,paid);
- return <div className="overview-highlights"><section className="overview-welcome"><div className="welcome-copy"><span className="welcome-label"><Sparkles size={13}/>YOUR HOME. EVERY DETAIL.</span><h2>Big dreams.<br/><span>Clearer numbers.</span></h2><p>From the first brick to the finishing touches,<br/>keep your home’s story beautifully accounted for.</p><div className="welcome-meta"><span className="welcome-avatar">{admin?'AM':'GV'}</span><span>{admin?'Welcome back':'Welcome to our home'}<small>{range} overview · {w.demo?'Sample project':project.name}</small></span></div></div><div className="house-scene" aria-hidden="true"><svg viewBox="0 0 330 220" fill="none"><ellipse cx="172" cy="196" rx="136" ry="14" fill="#e2ebfb"/><path d="M70 100L164 39L259 100V190H70V100Z" fill="#fff" stroke="#c6d7f4" strokeWidth="2"/><path d="M56 105L164 31L274 105" stroke="#376ed0" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round"/><path d="M77 107H252" stroke="#e2ebfb" strokeWidth="2"/><path d="M161 112H204V190H161V112Z" fill="#eaf1ff" stroke="#8cafe9" strokeWidth="2"/><circle cx="195" cy="153" r="2.5" fill="#4674be"/><rect x="94" y="119" width="40" height="42" rx="3" fill="#eef5ff" stroke="#8cafe9" strokeWidth="2"/><path d="M114 120V160M95 139H133" stroke="#8cafe9" strokeWidth="2"/><rect x="145" y="70" width="38" height="24" rx="3" fill="#eff5ff" stroke="#a8c1ed" strokeWidth="2"/><path d="M164 71V93" stroke="#a8c1ed" strokeWidth="2"/><path d="M215 64V28H237V80" fill="#d6e4fa"/><path d="M211 28H241" stroke="#a4bfe9" strokeWidth="5" strokeLinecap="round"/><path d="M54 190H279" stroke="#8eade0" strokeWidth="3" strokeLinecap="round"/><rect x="238" y="172" width="22" height="12" rx="2" fill="#eeb868"/><rect x="259" y="184" width="22" height="12" rx="2" fill="#f6cc8b"/><rect x="231" y="184" width="22" height="12" rx="2" fill="#f6cc8b"/><path d="M47 184V144" stroke="#9ab9a1" strokeWidth="3"/><ellipse cx="47" cy="144" rx="16" ry="23" fill="#c9e3d4"/><path d="M296 190V161" stroke="#9ab9a1" strokeWidth="3"/><ellipse cx="296" cy="157" rx="12" ry="18" fill="#c9e3d4"/></svg><span className="house-note"><span><Check size={13}/></span>One step closer to home</span></div><div className="welcome-snapshot"><span className="snapshot-icon"><House size={19}/></span><small>{project.name.toUpperCase()}</small><strong>{project.stage}</strong><p>Recorded project stage</p><div className="snapshot-payment"><span>Cash paid</span><b><AnimatedMoney value={paid}/></b></div><div className="snapshot-progress"><i style={{width:`${progress.percentage}%`}}/></div><span className="snapshot-caption">{progress.label==='Almost paid'?'Almost all selected expenses paid':progress.label==='No expenses yet'?progress.label:progress.label.replace('paid','of selected expenses paid')}</span></div></section>
- <div className="overview-metrics-title"><span>THE FINANCIAL PICTURE</span><span>{range}<span className="metric-dot"/>INR</span></div><div className="kpi-grid overview-kpis">{cards.map((k,i)=><motion.button type="button" className={`card kpi metric-${k.color}`} key={k.label} initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} transition={{delay:i*.055,duration:.3}} whileHover={{y:-4}} whileTap={{scale:.985}} onClick={()=>onExplore(k.filter)} aria-label={`View ${k.label.toLowerCase()} records`}><div className="kpi-top"><span>{k.label}</span><span className={'kpi-icon '+k.color}><k.icon size={17}/></span></div><h2><AnimatedMoney value={k.value}/></h2><div className="metric-footer"><small>{k.note}</small><ArrowUpRight size={13}/></div></motion.button>)}</div></div>
+type Props={
+ data:Snapshot;
+ day:string;
+ range:string;
+ setRange:(range:string)=>void;
+ onPending:()=>void;
+ entries:PaymentEntry[];
+ todayEntries:PaymentEntry[];
+ arrivals:PaymentEntry[];
+ openPayment:(entry:PaymentEntry)=>void;
+};
+
+export default function OverviewHighlights({data,day,range,setRange,onPending,entries,todayEntries,arrivals,openPayment}:Props){
+ const projectPaid=sumMoney(entries.map(({payment})=>payment.amount));
+ const {pending}=totals(data.expenses);
+ const received=sumMoney(data.contributions.map(contribution=>contribution.amount));
+ const selected=periodBounds(range,day);
+ const previous=periodBounds(range,day,true);
+ const ordered=useMemo(()=>[...entries].sort(latestPayment),[entries]);
+ const periodPayments=selected?ordered.filter(({payment})=>payment.date>=selected.from&&payment.date<=selected.to):ordered;
+ const {date:lastDate} = ordered[0]?.payment??{};
+ const {date:firstDate} = ordered.at(-1)?.payment??{};
+ const bounds=selected??(firstDate&&lastDate?{from:firstDate,to:lastDate}:undefined);
+ const rangePaid=sumMoney(periodPayments.map(({payment})=>payment.amount));
+ const previousPaid=previous&&sumMoney(entries.filter(({payment})=>payment.date>=previous.from&&payment.date<=previous.to).map(({payment})=>payment.amount));
+ const grouped=new Map<string,number[]>();
+ for(const {payment,expense} of periodPayments){
+  const values=grouped.get(expense.category)??[];
+  values.push(payment.amount);
+  grouped.set(expense.category,values);
+ }
+ const categories=[...grouped].map(([name,amounts])=>({name,amount:sumMoney(amounts)}))
+  .sort((a,b)=>b.amount-a.amount||a.name.localeCompare(b.name));
+ const topCategory=categories[0];
+ const recent=periodPayments.filter(({payment})=>payment.date!==day).slice(0,4);
+ const rangeCaption=bounds?displayBounds(bounds):range;
+ const comparison=previousPaid?Math.round((rangePaid-previousPaid)/previousPaid*100):undefined;
+ const comparisonCopy=comparison===undefined?null:comparison===0?'About the same':
+  `${Math.abs(comparison).toLocaleString('en-IN')}% ${comparison>0?'higher':'lower'}`;
+
+ return <div className="overview-layout">
+  <section className="card overview-summary" aria-labelledby="spent-label">
+   <span className="overview-cover-photo category-photo" data-photo="plans" aria-hidden="true"/>
+   <div className="overview-total">
+    <h2 id="spent-label"><Wallet size={16} aria-hidden="true"/>Total spent</h2>
+    <strong className="spent-value">{money(projectPaid)}</strong>
+    <p>Project to date</p>
+   </div>
+   <button type="button" className="overview-metric" onClick={onPending} aria-label="View pending dues records">
+    <span><Clock3 size={15} aria-hidden="true"/>Pending invoice dues<ChevronRight className="metric-chevron" size={15} aria-hidden="true"/></span><strong>{money(pending)}</strong>
+   </button>
+   <div className="overview-metric"><span><HandCoins size={15} aria-hidden="true"/>Contributions received</span><strong>{money(received)}</strong></div>
+  </section>
+
+  <section className="card overview-payment-feed" aria-label="Payment activity">
+   <PaidToday entries={todayEntries} arrivals={arrivals} openPayment={openPayment} day={day}/>
+   <section className="recent-payments overview-recent" aria-labelledby="recent-heading">
+    <div className="overview-section-head"><div><h2 id="recent-heading">Recent payments</h2>{selected&&<p>{rangeCaption}</p>}</div></div>
+    {recent.length?<ul className="recent-payment-list">
+     {recent.map(entry=>{
+      const Icon=entry.expense.category==='Materials'?Boxes:entry.expense.category==='Contractor costs'?HardHat:ReceiptText;
+      return <li key={entry.payment.id}>
+      <button type="button" onClick={event=>{event.currentTarget.focus({preventScroll:true});openPayment(entry)}}>
+       <span className="payment-identity"><span className="recent-payment-icon" aria-hidden="true"><Icon size={16}/></span><span className="recent-payment-name"><strong>{entry.expense.title}</strong><small>{entry.expense.vendor}</small></span></span>
+       <span className="recent-payment-value"><strong>{money(entry.payment.amount)}</strong>
+        <time dateTime={entry.payment.date}>{displayDate(entry.payment.date,'d MMM')}</time>
+       </span>
+      </button>
+     </li>})}
+    </ul>:<p className="empty overview-empty">No earlier payments in this range.</p>}
+    <div className="recent-payment-footer"><NavLink to={paymentHistoryLink(bounds)}>View expense history<ArrowUpRight size={15} aria-hidden="true"/></NavLink></div>
+   </section>
+  </section>
+
+  <div className="overview-analysis">
+   <section className="card spending-card overview-categories" aria-labelledby="categories-heading">
+    <div className="overview-section-head">
+     <div><h2 id="categories-heading">Where the money went</h2><p>{rangeCaption}</p></div>
+     <label className="overview-range">
+      <CalendarDays aria-hidden="true" size={16}/>
+      <select aria-label="Date range" value={range} onChange={event=>setRange(event.target.value)}>
+       {dateRanges.map(option=><option key={option}>{option}</option>)}
+      </select>
+      <ChevronDown aria-hidden="true" size={15}/>
+     </label>
+    </div>
+    {categories.length>0&&<div className="category-stack" aria-hidden="true">
+     {categories.map(({name,amount},index)=><span key={name} data-rank={index} style={{width:`${amount/rangePaid*100}%`}}/>)}
+    </div>}
+    {categories.length>0?<ul className="spending-bars">
+     {categories.map(({name,amount})=>{
+      const share=amount/rangePaid;
+      const shareText=`${Math.round(share*100)}% of spending`;
+      return <li key={name}>
+       <NavLink to={paymentHistoryLink(bounds,name)} className="category-drill"
+        aria-label={`${name} ${money(amount)}`} aria-description={shareText}>
+        <CategoryPhoto category={name}/>
+        <span className="category-data"><span>{name}</span><strong>{money(amount)}</strong><small>{shareText}</small></span>
+        <ArrowUpRight className="category-action" size={16} aria-hidden="true"/>
+       </NavLink>
+      </li>})}
+    </ul>:<p className="empty overview-empty">No payments in this range.</p>}
+    {topCategory&&<NavLink className="spending-insight" to={paymentHistoryLink(bounds,topCategory.name)}>
+     {topCategory.name} made up {Math.round(topCategory.amount/rangePaid*100)}% of payments in this range.<ArrowUpRight size={15} aria-hidden="true"/>
+    </NavLink>}
+    <div className="overview-range-total">
+     <span><strong>{money(rangePaid)}</strong> paid in this range</span>
+     {selected&&<button className="overview-text-button" type="button" onClick={()=>setRange('All time')}>Clear period</button>}
+    </div>
+   </section>
+
+   {previous&&selected&&<section className="card overview-comparison" aria-labelledby="comparison-heading">
+    <div className="overview-section-head"><div><h2 id="comparison-heading">Compare periods</h2></div></div>
+    <div className="comparison-data">
+     <NavLink to={paymentHistoryLink(selected)}><small>Selected range · {displayBounds(selected)}</small><strong>{money(rangePaid)}</strong></NavLink>
+     <NavLink to={paymentHistoryLink(previous)}><small>Previous range · {displayBounds(previous)}</small><strong>{money(previousPaid??0)}</strong></NavLink>
+     {comparisonCopy&&<span>{comparisonCopy}</span>}
+    </div>
+   </section>}
+  </div>
+ </div>;
 }

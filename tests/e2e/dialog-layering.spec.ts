@@ -7,7 +7,7 @@ test('contribution modal covers transactions and navigation while the dashboard 
   await page.goto('/');
   const add=page.locator('.contribution-add');
   await add.scrollIntoViewIfNeeded();
-  await expect.poll(()=>page.locator('.recent').evaluate(el=>getComputedStyle(el).opacity)).toBe('1');
+  await expect.poll(()=>page.locator('.recent-payments').evaluate(el=>getComputedStyle(el).opacity)).toBe('1');
   await add.click();
   const dialog=page.getByRole('dialog',{name:'Add contribution'});
   await expect(dialog).toBeVisible();

@@ -1,24 +1,35 @@
-import {materialPurchases} from './lib/materials';
 import {automaticContributor,manualContributorNames,contributorName,contributionAllocation} from './lib/contributors';
-import {sumMoney} from './lib/accounting';
-import {useReducedMotion} from 'framer-motion';
 import {useState} from 'react';
-import {BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid,Cell} from 'recharts';
-import {Plus,Users,Pencil,X,Check,Trash2,Boxes} from 'lucide-react';
+import {Plus,Users,Pencil,ChevronDown} from 'lucide-react';
 import {Expense,money} from './data';
 import {useWorkspace} from './app/Workspace';
-import {periodStart,today} from './lib/accounting';
+import {inPeriod,today} from './lib/accounting';
+import {displayDate} from './lib/history-filters';
 import {Contribution} from './types';
 import RecordEditor from './components/RecordEditor';
 
-const colors=['#2563eb','#f5ad39','#8b5cf6','#16a34a','#06b6d4','#94a3b8'];
+const colors=['var(--forest)','var(--accent-mid)','var(--accent-pale)'];
 export default function FundingAnalytics({expenses,admin,range}:{expenses:Expense[];admin:boolean;range:string}){
- const reduced=useReducedMotion();const w=useWorkspace();const records=w.data!.contributions;const [editing,setEditing]=useState<Contribution|null|undefined>();
- const materials=Object.entries(materialPurchases(expenses).reduce((a,e)=>{a[e.material]=sumMoney([a[e.material]||0,e.amount]);return a},{} as Record<string,number>)).map(([name,amount])=>({name,amount})).sort((a,b)=>b.amount-a.amount);
- const selected=records.filter(c=>c.date>=periodStart(range));
+ const w=useWorkspace();const records=w.data!.contributions;const [editing,setEditing]=useState<Contribution|null|undefined>();
+ const current=inPeriod(range);
+ const selected=records.filter(c=>current(c.date));
  const allocation=contributionAllocation(expenses,selected);const people=allocation.people;const total=allocation.allocated;
 
- return <div className="analytics-grid funding-grid"><section className="card material-spending"><div className="section-heading"><div><h3>Material purchase costs</h3><p>Invoice costs by material · includes pending dues</p></div><Boxes size={19}/></div><div className="material-chart" style={{height:Math.max(245,materials.length*42)}}>{materials.length?<ResponsiveContainer width="100%" height="100%"><BarChart data={materials} layout="vertical" margin={{left:0,right:28,top:20,bottom:5}} barSize={17}><CartesianGrid horizontal={false} strokeDasharray="3 4" stroke="#e9eef5"/><XAxis type="number" axisLine={false} tickLine={false} tick={{fontSize:10,fill:'#8490a2'}} tickFormatter={v=>`₹${v/1000}k`}/><YAxis dataKey="name" type="category" width={77} axisLine={false} tickLine={false} tick={{fontSize:11,fill:'#64748b'}}/><Tooltip formatter={(v:number)=>money(v)} cursor={{fill:'#f5f8fc'}} contentStyle={{borderRadius:10,border:'1px solid #e2e8f0'}}/><Bar isAnimationActive={!reduced} dataKey="amount" name="Purchase cost" radius={[0,5,5,0]}>{materials.map((m,i)=><Cell key={m.name} fill={colors[i%colors.length]}/>)}</Bar></BarChart></ResponsiveContainer>:<div className="empty">No material purchases in this period.</div>}</div><div className="chart-foot"><span>Total material purchases</span><strong>{money(sumMoney(materials.map(m=>m.amount)))}</strong></div></section>
- <section className="card contributions"><div className="section-heading"><div><h3>People’s contributions</h3><p>Amit covers the paid expense balance automatically</p></div>{admin&&<button className="btn contribution-add" onClick={()=>setEditing(null)}><Plus size={14}/>Add</button>}</div><div className="contribution-total"><span className="kpi-icon green"><Users size={19}/></span><div><small>Paid expense shares · selected period</small><strong>{money(total)}</strong></div><span className="subtle-tag">{w.demo?'Sample data':'Expense allocation'}</span></div><p className="automatic-share-formula">{money(allocation.paid)} paid expenses − {money(allocation.others)} from others = <strong>{money(allocation.people[0].amount)} Amit’s share</strong></p>{allocation.excess>0&&<p className="contribution-surplus" role="status">Contributions from others exceed selected paid expenses by {money(allocation.excess)}. Amit’s share stays ₹0.</p>}<div className="contribution-people">{people.map((p,i)=><div className="contributor" key={p.name}><div className="contributor-heading"><span className="avatar" style={{background:colors[i%colors.length]+'15',color:colors[i%colors.length]}}>{p.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</span><strong>{p.name}{p.automatic&&<span className="automatic-share-tag">Automatic</span>}</strong><b>{money(p.amount)}</b><small>{total?(p.amount/total*100).toFixed(1):0}%</small></div><div className="progress thin"><i style={{width:`${total?p.amount/total*100:0}%`,background:colors[i%colors.length]}}/></div></div>)}{!people.length&&<p className="muted">No contributions recorded in this period.</p>}</div><div className="contribution-history"><span className="eyebrow">RECORDED CONTRIBUTIONS</span>{[...selected].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4).map(c=><div key={c.id}><span>{contributorName(c.name)}<small>{c.date}{contributorName(c.name)===automaticContributor?' · Historical manual entry · excluded from shares':''}</small></span><strong>{money(c.amount)}</strong>{admin&&<button className="icon-btn" aria-label={`Edit ${c.name}'s contribution on ${c.date}`} onClick={()=>setEditing(c)}><Pencil size={12}/></button>}</div>)}</div><p className="contribution-note">Amit’s automatic share uses selected-period paid expenses minus recorded contributions from everyone else. It updates when either changes. Unpaid amounts and pending dues are excluded. This allocation does not record a payment or settle vendor dues.{allocation.historicalAmit>0?' Historical manual Amit entries remain in history and are excluded from this calculation.':''}</p></section>
- {editing!==undefined&&admin&&<RecordEditor title={editing?'Edit contribution':'Add contribution'} initial={editing?{...editing}:{date:today(),is_public:true}} fields={[{key:'name',label:'Contributor name',type:'select',options:[...manualContributorNames,...(editing&&!manualContributorNames.includes(editing.name)?[editing.name]:[])],required:true},{key:'date',label:'Contribution date',type:'date',required:true},{key:'amount',label:'Amount contributed (₹)',type:'number',min:.01,max:999999999,step:'.01',required:true},{key:'is_public',label:'Allow public viewers to see this contribution',type:'checkbox'}]} save={(p,key)=>w.saveRecord('contributions',p,key)} remove={editing?()=>w.remove('contributions',editing.id):undefined} close={()=>setEditing(undefined)}/>}</div>
+ return <>
+ <section className="card contributions">
+  <div className="section-heading"><h3>People’s contributions</h3>{admin&&<button className="btn contribution-add" onClick={()=>setEditing(null)} aria-label="Add contribution"><Plus size={14}/>Add</button>}</div>
+  <div className="contribution-total"><span className="kpi-icon green"><Users size={19}/></span><div><small>Total allocated</small><strong>{money(total)}</strong></div></div>
+  <div className="contribution-people">
+   {total>0&&<div className="contribution-distribution" aria-hidden="true">{people.map((p,i)=>p.amount>0&&<span key={p.name} style={{flexGrow:p.amount,background:colors[i%colors.length]}}/>)}</div>}
+   {people.map((p,i)=><div className="contributor" key={p.name}><div className="contributor-heading">
+    <span className="avatar" style={{background:'var(--leaf)',color:'var(--forest-dark)'}}>{p.name.split(' ').map(n=>n[0]).slice(0,2).join('')}</span>
+    <strong>{p.name}{p.automatic&&<span className="automatic-share-tag">Automatic</span>}</strong><b>{money(p.amount)}</b><small>{total?(p.amount/total*100).toFixed(1):0}%</small>
+   </div></div>)}
+  </div>
+  {allocation.excess>0&&<p className="contribution-surplus" role="status">{money(allocation.excess)} above paid expenses</p>}
+  {selected.length>0&&<details className="contribution-history"><summary>Contribution history<ChevronDown size={15}/></summary>
+   <div className="contribution-history-list">{[...selected].sort((a,b)=>b.date.localeCompare(a.date)).map(c=><div className="contribution-history-row" key={c.id}><span>{contributorName(c.name)}<small>{displayDate(c.date)}{contributorName(c.name)===automaticContributor?' · Excluded from shares':''}</small></span><strong>{money(c.amount)}</strong>{admin&&<button className="icon-btn" aria-label={"Edit "+c.name+"'s contribution on "+c.date} onClick={()=>setEditing(c)}><Pencil size={12}/></button>}</div>)}</div>
+  </details>}
+ </section>
+ {editing!==undefined&&admin&&<RecordEditor title={editing?'Edit contribution':'Add contribution'} initial={editing?{...editing}:{date:today(),is_public:true}} fields={[{key:'name',label:'Contributor name',type:'select',options:[...manualContributorNames,...(editing&&!manualContributorNames.includes(editing.name)?[editing.name]:[])],required:true},{key:'date',label:'Contribution date',type:'date',required:true},{key:'amount',label:'Amount contributed (₹)',type:'number',min:.01,max:999999999,step:'.01',required:true},{key:'is_public',label:'Allow public viewers to see this contribution',type:'checkbox'}]} save={(p,key)=>w.saveRecord('contributions',p,key)} remove={editing?()=>w.remove('contributions',editing.id):undefined} close={()=>setEditing(undefined)}/>}</>
 }

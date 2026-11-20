@@ -1,14 +1,20 @@
 import {supabase} from '../lib/supabase';
 import {Expense,PaymentProof} from '../data';
 import {Snapshot} from '../types';
-import {maxPaymentImages,paymentImagePaths,paymentImageTypes,maxPaymentImageBytes} from '../lib/payment-images';
+import {maxPaymentImages,paymentImagePaths,paymentImageTypes,maxPaymentImageBytes,visiblePaymentProofs} from '../lib/payment-images';
 export function check<T>({data,error}:{data:T;error:{message:string;code?:string}|null}):T{if(error)throw Object.assign(new Error(error.message),{code:error.code});return data}
 export async function readSnapshot():Promise<Snapshot>{
  const snapshot=check(await supabase!.rpc('app_snapshot')) as Snapshot;
- if(snapshot.admin)await Promise.all([...snapshot.expenses.flatMap(e=>e.proof?[e.proof]:[]),...snapshot.payments.flatMap(p=>p.proofs||[])].filter(proof=>proof.path).map(async proof=>{
- const response=await supabase!.storage.from('receipts').createSignedUrl(proof.path!,300,{download:proof.name});
- if(!response.error)proof.url=response.data.signedUrl;
- }));return snapshot;
+ const receipts=snapshot.expenses.flatMap(e=>e.proof?[e.proof]:[]);
+ const paymentProofs=snapshot.payments.flatMap(payment=>visiblePaymentProofs(payment.proofs,snapshot.admin));
+ const proofs=[...receipts,...paymentProofs];
+ const paths=[...new Set(paymentImagePaths(proofs))];
+ if(paths.length){
+  const {data}=await supabase!.storage.from('receipts').createSignedUrls(paths,300);
+  const urls=new Map(data?.map(({path,signedUrl})=>[path,signedUrl]));
+  for(const proof of proofs)if(proof.path)proof.url=urls.get(proof.path)||'';
+ }
+ return snapshot;
 }
 export async function saveExpense(input:Omit<Expense,'id'>,existing:Expense|null,key:string){
  let uploaded:string|undefined;
@@ -36,7 +42,7 @@ async function savePayment(p:Record<string,unknown>,key:string,snapshot?:Snapsho
  const proofs=(p.proofs||[]) as PaymentProof[];
  if(proofs.length>maxPaymentImages)throw new Error(`Attach up to ${maxPaymentImages} images per payment.`);
  const old=snapshot?.payments.find(payment=>payment.id===p.id);
- const uploaded:string[]=[],metadata:{path:string;name:string;type:string}[]=[];
+ const uploaded:string[]=[],metadata:{path:string;name:string;type:string;is_public?:boolean}[]=[];
  try{
   for(let index=0;index<proofs.length;index++){
    const proof=proofs[index];let path=proof.path;
@@ -50,7 +56,7 @@ async function savePayment(p:Record<string,unknown>,key:string,snapshot?:Snapsho
     if(!result.error)uploaded.push(path);
    }
    if(!path)throw new Error('Image is missing. Select it again before saving.');
-   metadata.push({path,name:proof.name,type:proof.type});
+   metadata.push({path,name:proof.name,type:proof.type,...(snapshot?.publicPaymentReceipts?{is_public:proof.is_public===true}:{})});
   }
   const {proofs:_proofs,...fields}=p;
   const id=check(await supabase!.rpc('save_payment',{p:{...fields,proofs:metadata},request_id:key}));

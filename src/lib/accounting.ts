@@ -1,11 +1,36 @@
 import Decimal from 'decimal.js';
 import {Expense} from '../data';
-export const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-export function periodStart(range:string,now=today()){
- const first=now.slice(0,7)+'-01';
- if(range==='This month')return first;
- if(range==='Last 2 months'){const date=new Date(first+'T12:00:00Z');date.setUTCMonth(date.getUTCMonth()-1);return date.toISOString().slice(0,10)}
- return '';
+const kolkataDate=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'});
+export const today=(now=new Date())=>kolkataDate.format(now);
+export const dateRanges=['All time','This month','Last month','Last 2 months'] as const;
+export type DateBounds={from:string;to:string};
+const calendarRanges=new Map<string,readonly [number,number]>([['This month',[0,1]],['Last month',[-1,0]],['Last 2 months',[-1,1]]]);
+
+export function monthStart(date:string,offset=0){
+ const month=new Date(date.slice(0,7)+'-01T12:00:00Z');
+ month.setUTCMonth(month.getUTCMonth()+offset);
+ return month.toISOString().slice(0,10);
+}
+
+export function previousDay(date:string){
+ const day=new Date(date+'T12:00:00Z');
+ day.setUTCDate(day.getUTCDate()-1);
+ return day.toISOString().slice(0,10);
+}
+
+export function periodBounds(range:string,now=today(),previous=false):DateBounds|undefined{
+ const period=calendarRanges.get(range);
+ if(!period)return;
+ const [start,end]=period;
+ const offset=previous?start-end:0;
+ return {from:monthStart(now,start+offset),to:previousDay(monthStart(now,end+offset))};
+}
+
+export const periodStart=(range:string,now=today())=>periodBounds(range,now)?.from??'';
+
+export function inPeriod(range:string,now=today()){
+ const bounds=periodBounds(range,now);
+ return (date:string)=>!bounds||(date>=bounds.from&&date<=bounds.to);
 }
 export const roundMoney=(value:Decimal.Value)=>new Decimal(value).toDecimalPlaces(2,Decimal.ROUND_HALF_UP).toNumber();
 export const purchaseAmount=(quantity:Decimal.Value,rate:Decimal.Value,roundToRupee=false)=>new Decimal(quantity).mul(rate).toDecimalPlaces(roundToRupee?0:2,Decimal.ROUND_HALF_UP).toNumber();

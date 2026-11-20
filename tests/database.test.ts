@@ -103,7 +103,8 @@ test('PostgreSQL migration: permissions, public privacy, accounting, idempotency
  // Payment attachments migrate existing records without moving invoice receipts.
  await db.exec('reset role');await db.exec(await readFile('supabase/migrations/202611180003_payment_images.sql','utf8'));
  await role(admin);s=await snapshot();assert.equal(s.paymentAttachments,true);assert.deepEqual(s.payments.map((p:any)=>p.id).sort(),[...paymentIds,...s.payments.filter((p:any)=>p.expense_id===roundedId).map((p:any)=>p.id)].sort());
- const imageExpense=await save({...expense,title:'Two instalments',date:'2026-11-01',quantity:100,rate:500,paid:30000});
+ const imageInvoice={...expense,title:'Two instalments',date:'2026-11-01',quantity:100,rate:500,paid:30000};
+ const imageExpense=await save(imageInvoice);
  let first=(await snapshot()).payments.find((p:any)=>p.expense_id===imageExpense);
  const paths=Array.from({length:6},(_,i)=>`${admin}/payments/test/${i}`);
  for(const path of paths)await db.query("insert into storage.objects(bucket_id,name) values('receipts',$1)",[path]);
@@ -124,6 +125,75 @@ test('PostgreSQL migration: permissions, public privacy, accounting, idempotency
  second=s.payments.find((p:any)=>p.id===secondId);delete second.proofs;await savePayment(second);assert.equal((await snapshot()).payments.find((p:any)=>p.id===secondId).proofs.length,1);
  await role();s=await snapshot();assert(!JSON.stringify(s).includes('PRIVATE_PAYMENT_'));assert(s.payments.every((p:any)=>!('proofs' in p)));await assert.rejects(db.query('select * from public.payment_receipts'),/permission denied/);await assert.rejects(savePayment(second),/permission denied/);
  await role(other);await assert.rejects(savePayment(second),/administrator/);await assert.rejects(db.exec('select private.app_snapshot_before_payment_images()'),/permission denied/);
+ const receiptPath=admin+'/public-expense-receipt';
+ await db.exec('reset role');
+ await db.query("insert into storage.objects(bucket_id,name) values('receipts',$1)",[receiptPath]);
+ await role(admin);
+ const receiptExpense={...expense,category:'Other',paid:0,proof:{path:receiptPath,name:'invoice.png',type:'image/png'}};
+ const receiptId=await save(receiptExpense);
+ await db.exec('reset role');
+ const receiptMigration=await readFile('supabase/migrations/202611200001_public_expense_receipts.sql','utf8');
+ await db.exec(receiptMigration);
+ await db.exec(receiptMigration);
+ await db.exec(await readFile('supabase/migrations/202611200002_payment_order.sql','utf8'));
+ for(const viewer of [undefined,other]){
+  await role(viewer);
+  const publicSnapshot=await snapshot();
+  assert.equal(publicSnapshot.publicExpenseReceipts,true);
+  assert(publicSnapshot.payments.length>0);
+  assert(publicSnapshot.payments.every((p:any)=>p.created_at&&!('proofs' in p)&&!('notes' in p)));
+  const publicInvoice=publicSnapshot.expenses.find((e:any)=>e.id===receiptId);
+  assert.equal(publicInvoice.proof.path,receiptPath);
+  assert.equal(publicInvoice.notes,undefined);
+  assert.deepEqual((await db.query("select name from storage.objects where bucket_id='receipts'")).rows,[{name:receiptPath}]);
+ }
+ await role(admin);
+ await save({...receiptExpense,id:receiptId,version:1,is_public:false});
+ assert.equal((await snapshot()).expenses.find((e:any)=>e.id===receiptId).proof.path,receiptPath);
+ await role();
+ assert(!(await snapshot()).expenses.some((e:any)=>e.id===receiptId));
+ assert.deepEqual((await db.query("select name from storage.objects where bucket_id='receipts'")).rows,[]);
+ await role(admin);await remove('expenses',receiptId);
+
+ // The new policy exposes only opted-in images on publicly visible expenses.
+ await db.exec('reset role');
+ await db.exec(await readFile('supabase/migrations/202611200003_public_payment_receipts.sql','utf8'));
+ const visiblePaths=async()=>(await db.query<{name:string}>("select name from storage.objects where bucket_id='receipts' order by name")).rows.map(r=>r.name);
+ await role();
+ assert.equal((await snapshot()).publicPaymentReceipts,true);
+ assert.deepEqual(await visiblePaths(),[]);
+ assert((await snapshot()).payments.every((p:any)=>!('proofs' in p)));
+ await role(admin);
+ first=(await snapshot()).payments.find((p:any)=>p.id===first.id);
+ assert(first.proofs.every((image:any)=>image.is_public===false));
+ await savePayment({...first,reference:'PRIVATE_PAYMENT_REFERENCE',notes:'PRIVATE_PAYMENT_NOTE',proofs:[{...proof(0),is_public:true},proof(1)]});
+ first=(await snapshot()).payments.find((p:any)=>p.id===first.id);
+ // The previous frontend sent image metadata without a visibility field.
+ await savePayment({...first,proofs:[proof(0),proof(1)]});
+ for(const viewer of [undefined,other]){
+  await role(viewer);
+  const publicSnapshot=await snapshot();
+  const payment=publicSnapshot.payments.find((p:any)=>p.id===first.id);
+  assert.deepEqual(payment.proofs.map((image:any)=>image.path),[paths[0]]);
+  assert(!('notes' in payment)&&!('reference' in payment));
+  assert(!('proofs' in publicSnapshot.payments.find((p:any)=>p.id===secondId)));
+  assert.deepEqual(await visiblePaths(),[paths[0]]);
+  await assert.rejects(savePayment({...first,proofs:[{...proof(1),is_public:true}]}),/permission denied|administrator/);
+ }
+ await role(admin);
+ let publicImageInvoice=(await snapshot()).expenses.find((e:any)=>e.id===imageExpense);
+ await save({...imageInvoice,id:imageExpense,version:publicImageInvoice.version,is_public:false});
+ await role();
+ assert(!(await snapshot()).payments.some((p:any)=>p.expense_id===imageExpense));
+ assert.deepEqual(await visiblePaths(),[]);
+ await role(admin);
+ publicImageInvoice=(await snapshot()).expenses.find((e:any)=>e.id===imageExpense);
+ await save({...imageInvoice,id:imageExpense,version:publicImageInvoice.version,is_public:true});
+ first=(await snapshot()).payments.find((p:any)=>p.id===first.id);
+ await savePayment({...first,proofs:[{...proof(0),is_public:false},proof(1)]});
+ await role();
+ assert((await snapshot()).payments.every((p:any)=>!('proofs' in p)));
+ assert.deepEqual(await visiblePaths(),[]);
  await role(admin);await remove('payments',secondId);await remove('expenses',imageExpense);await db.exec('reset role');assert.equal((await db.query<{n:number}>('select count(*)::int n from public.payment_receipts')).rows[0].n,0);
  }finally{await db.close()}
 });

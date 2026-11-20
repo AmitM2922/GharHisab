@@ -1,0 +1,44 @@
+.header-tools{display:flex;align-items:center;gap:17px;position:relative}
+.notification-trigger{position:relative;border:0;background:transparent;color:#8492a8;padding:8px;border-radius:9px;display:flex;transition:background .2s}
+.notification-trigger:hover,.notification-trigger[aria-expanded=true]{background:#f0f5ff;color:#2563eb}
+.notification-dot{width:6px;height:6px;background:#eea846;position:absolute;right:8px;top:7px;border-radius:50%;outline:2px solid white;animation:alert-enter .5s ease}
+.header-divider{height:24px;width:1px;background:#edf0f5}
+.avatar-trigger{display:flex;align-items:center;gap:9px;border:0;background:transparent;text-align:left;color:#64748b;padding:0}
+.profile-avatar{position:relative;display:grid;place-items:center;background:#e9f0fd;color:#3d69b8;width:36px;height:36px;border:3px solid white;outline:1px solid #e4eaf5;border-radius:50%;font-size:10px;font-weight:650}
+.profile-avatar i{position:absolute;bottom:0;right:-1px;width:8px;height:8px;border:2px solid white;background:#56b98a;border-radius:50%}
+.avatar-name{font-size:10px;font-weight:600;color:#526176}
+.avatar-name small{display:block;font-size:8px;color:#a0acbd;font-weight:400;margin-top:4px}
+.header-popover{position:absolute;top:49px;right:0;width:335px;border:1px solid #e1e8f3;border-radius:13px;background:white;box-shadow:0 15px 50px #213c6b1a;z-index:60;overflow:hidden;transform-origin:top right}
+.popover-heading{display:flex;justify-content:space-between;align-items:center;padding:19px 19px 16px;border-bottom:1px solid #edf0f5}
+.popover-heading strong{font-size:13px;font-weight:600}
+.popover-heading small{display:block;font-size:8px;margin-top:5px}
+.alert-summary{display:flex;align-items:center;gap:9px;padding:13px;margin:13px;background:#fff9ef;border:1px solid #f8ecd4;color:#c59948;border-radius:8px}
+.alert-summary strong{font-size:10px;font-weight:550;color:#a97d32}
+.alert-summary small{display:block;font-size:8px;margin-top:4px;color:#c6a469}
+.alert-list{max-height:320px;overflow:auto}
+.alert-list button{display:flex;align-items:flex-start;gap:9px;border:0;border-bottom:1px solid #f1f4f8;background:white;padding:13px 18px;width:100%;text-align:left}
+.alert-list button:hover{background:#f8fbff}
+.alert-row-icon{width:27px;height:27px;border-radius:50%;background:#f8fafc;color:#adbbce;display:grid;place-items:center;flex-shrink:0}
+.alert-list button>span:nth-child(2){flex:1}
+.alert-list strong{font-size:10px;font-weight:550;color:#5d6d84;line-height:1.5}
+.alert-list small{display:block;font-size:8px;margin-top:3px}
+.alert-list b{font-size:9px;display:block;font-weight:500;color:#b68f4f;margin-top:6px}
+.alert-list button>svg{color:#9aabc3;margin-top:4px}
+.mark-read{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:13px;background:#fafcff;border:0;color:#6589c4;font-size:9px}
+.popover-profile{padding:22px;display:flex;flex-direction:column;align-items:center;background:#f8faff;margin-bottom:8px}
+.popover-profile .profile-avatar{width:48px;height:48px;font-size:14px;margin-bottom:12px}
+.popover-profile>strong{font-size:13px;font-weight:600}
+.popover-profile>small{font-size:9px;margin-top:5px}
+.header-popover.profile>a,.header-popover.profile>button{display:flex;align-items:center;gap:10px;width:100%;background:white;border:0;padding:13px 19px;color:#6b7d98;font-size:10px;text-align:left}
+.header-popover.profile>a:hover,.header-popover.profile>button:hover{background:#f8fbff}
+.header-popover.profile>a>svg:last-child,.header-popover.profile>button>svg:last-child{margin-left:auto;color:#a3b3cc}
+.profile-disclaimer{display:flex;align-items:flex-start;gap:7px;line-height:1.7;font-size:8px;color:#9dabc0;margin:10px 16px 15px;padding-top:13px;border-top:1px solid #edf0f5}
+.no-alerts{padding:30px;display:flex;flex-direction:column;align-items:center;gap:12px;color:#85a99a;font-size:11px}
+.no-alerts p{font-size:9px;color:#94a3b8}
+.toast>button{border:0;background:#ffffff15;border-radius:5px;color:#c9d4e6;padding:5px;display:flex;margin-left:8px}
+@keyframes alert-enter{from{transform:scale(0)}to{transform:scale(1)}}
+.header-popover.profile{width:275px}
+@media(max-width:1200px){.avatar-name{display:none}.header-tools{gap:12px}}
+@media(max-width:600px){.header-divider{display:none}.profile-avatar{width:32px;height:32px;font-size:9px}.avatar-trigger{gap:5px}.avatar-trigger>svg{width:10px}.header-popover{position:fixed;top:96px;right:13px;max-width:calc(100vw - 26px)}.alert-list{max-height:45vh}.toast{white-space:normal}.toast>span{line-height:1.5}}
+@media(prefers-reduced-motion:reduce){.notification-dot{animation:none}}
+@media print{.header-tools{display:none!important}}

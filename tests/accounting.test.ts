@@ -1,11 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {purchaseAmount,sumMoney,periodStart,csvCell,totals,paymentProgress} from '../src/lib/accounting';
+import {purchaseAmount,sumMoney,inPeriod,periodBounds,periodStart,csvCell,totals,paymentProgress} from '../src/lib/accounting';
 import {seed} from '../src/data';
 test('decimal calculations, sample ledger and reporting safety',()=>{
  assert.equal(purchaseAmount('0.3','0.5'),.15);assert.equal(purchaseAmount('1','1.005'),1.01);assert.equal(sumMoney([.1,.2]),.3);
  assert.deepEqual(totals(seed),{incurred:667600,paid:618300,pending:49300});
  assert.equal(periodStart('Last 2 months','2027-01-17'),'2026-12-01');assert.equal(periodStart('This month','2026-11-17'),'2026-11-01');
+ const november=inPeriod('This month','2026-11-17');
+ assert(november('2026-11-01'));assert(!november('2026-12-01'));
+ assert.deepEqual(periodBounds('Last 2 months','2027-01-17',true),{from:'2026-10-01',to:'2026-11-30'});
+ assert.deepEqual(periodBounds('Last month','2024-03-01'),{from:'2024-02-01',to:'2024-02-29'});
  assert.equal(csvCell('=WEBSERVICE("bad")'),'"\'=WEBSERVICE(""bad"")"');assert.equal(csvCell('Sand, steel'),'"Sand, steel"');
 });
 test('whole-rupee material pricing and near-paid labels stay consistent',()=>{

@@ -1,0 +1,55 @@
+.paid-today { margin-bottom: 20px; }
+.paid-today-header {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 18px 22px;
+}
+.paid-today-header h2 { font-size: 1.2rem; letter-spacing: -.025em; }
+.paid-today-header p { margin-top: 3px; color: var(--muted); font-size: .92rem; }
+.paid-today-total {
+  color: var(--forest-dark);
+  font-size: clamp(1.2rem, 3.5vw, 1.75rem);
+  font-variant-numeric: tabular-nums;
+}
+.paid-today-list { margin: 0; border-top: 1px solid var(--line); }
+.paid-today-list li[data-arriving] {
+  animation: payment-arrival 200ms ease-out backwards, payment-highlight 850ms ease-out;
+}
+.paid-today-list button, .history-card .filters :is(input,select) {
+  transition: background-color 200ms ease-out, border-color 200ms ease-out;
+}
+.paid-today-message { padding: 0 22px 12px; color: var(--forest-dark); font-weight: 600; }
+.spending-track span { transition: width 200ms ease-out; }
+.filter-results li { animation: filter-appear 200ms ease-out; }
+
+@keyframes payment-arrival {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes payment-highlight {
+  0%, 23% { background-color: transparent; }
+  24% { background-color: var(--arrival-highlight, var(--leaf)); }
+  to { background-color: transparent; }
+}
+@keyframes filter-appear { from { opacity: 0; } to { opacity: 1; } }
+
+@media (max-width: 800px) {
+  .transaction-overlay { align-items: flex-end; }
+  .transaction-overlay .transaction-drawer {
+    width: 100%;
+    height: 94dvh;
+    max-height: 94dvh;
+    border-radius: 18px 18px 0 0;
+    overscroll-behavior: contain;
+  }
+}
+@media (max-width: 600px) {
+  .paid-today-header { padding: 15px; gap: 9px; }
+  .paid-today-message { padding-inline: 15px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paid-today-list li[data-arriving], .filter-results li { animation: none; }
+  .paid-today-list button, .history-card .filters :is(input,select), .spending-track span { transition: none; }
+}

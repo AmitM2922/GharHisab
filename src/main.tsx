@@ -1,28 +1,32 @@
-import {materialTotals as summarizeMaterials,materialLines,isAmountOnly} from './lib/materials';
-import React,{useState,useEffect,useRef,lazy,Suspense} from 'react';
+import React,{useState,useEffect,useRef,useMemo,lazy,Suspense} from 'react';
 import {createRoot} from 'react-dom/client';
-import {HashRouter,NavLink,useLocation} from 'react-router-dom';
+import {HashRouter,NavLink,useLocation,useNavigate} from 'react-router-dom';
 import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
-import {AnimatePresence,motion,MotionConfig} from 'framer-motion';
-import {LayoutDashboard,Receipt,Boxes,HardHat,Users,ChartNoAxesCombined,House,ArrowUpRight,Plus,Search,ChevronRight,Download,RefreshCw,X,Menu,ShieldCheck,Eye,Package,CheckCircle2,Building2,LogOut,History,Ellipsis} from 'lucide-react';
-import {format} from 'date-fns';
+import {AnimatePresence,motion,MotionConfig,useReducedMotion} from 'framer-motion';
+import {LayoutDashboard,Receipt,Boxes,HardHat,Users,ChartNoAxesCombined,House,Plus,ChevronRight,Download,RefreshCw,X,Menu,ShieldCheck,Eye,CheckCircle2,Building2,LogOut,History,Ellipsis} from 'lucide-react';
 import {Expense,money} from './data';
 import ExpenseForm from './ExpenseForm';
 import OverviewHighlights from './OverviewHighlights';
 import HeaderTools from './HeaderTools';
 import ExpenseDetails from './ExpenseDetails';
-import ExpenseTable from './components/ExpenseTable';
+import LedgerHistory,{exportExpenseCsv} from './pages/LedgerHistory';
+import {displayDate,historyLink} from './lib/history-filters';
 import AuthDialog from './components/AuthDialog';
 import {WorkspaceProvider,useWorkspace} from './app/Workspace';
-import {periodStart,today,totals,sumMoney,downloadCsv} from './lib/accounting';
+import {dateRanges,inPeriod,totals} from './lib/accounting';
 import './styles.css';
-import './overview.css';
+import './header-tools.css';
 import './transactions.css';
 import './mobile.css';
 import './materials.css';
 import './contributions.css';
 import './expense-details.css';
 import './payment-images.css';
+import './ledger-theme.css';
+import './paid-today.css';
+import './redesign.css';
+import {latestPayment,paymentsForExpenses,type PaymentEntry} from './lib/payment-ledger';
+import {useKolkataDay,usePaymentArrivals} from './usePaidToday';
 const Charts=lazy(()=>import('./charts'));
 const FundingAnalytics=lazy(()=>import('./FundingAnalytics'));
 const MaterialsPage=lazy(()=>import('./pages/Materials'));
@@ -34,41 +38,78 @@ const nav=[['/','Overview',LayoutDashboard],['/expenses','Expense history',Recei
 function Loading(){return <div className="loading-view" role="status"><div className="skeleton title-skeleton"/><div className="loading-grid">{[1,2,3,4,5].map(i=><div className="skeleton card-skeleton" key={i}/>)}</div><div className="skeleton chart-skeleton"/><span>Loading your project…</span></div>}
 function App(){
  const w=useWorkspace();const [auth,setAuth]=useState(false);let content:React.ReactNode;
+ const path=useLocation().pathname;
+ const history=path==='/expenses'||path==='/contractors';
  if(!w.demo&&!w.configured)content=<div className="setup-view"><span className="brand-icon"><House/></span><h1>GharHisab is ready to connect.</h1><p>Add your Supabase project URL and publishable key to your local environment to load real records. No sample figures are displayed in live mode.</p><p>Follow README.md. For a labeled local preview, set <code>VITE_DEMO_MODE=true</code> and restart Vite.</p></div>;
- else if(w.loading)content=<Loading/>;
- else if(w.error||!w.data)content=<div className="setup-view" role="alert"><h1>We couldn’t load your project.</h1><p>{w.error?.message||'Apply the database migration first.'}</p><button className="btn" onClick={()=>w.refresh().catch(()=>{})}>Try again</button></div>;
+ else if(w.loading)content=history?<div className="setup-view" role="status"><h1>{path==='/expenses'?'Expense history':'Contractor costs'}</h1><p>Loading expense records…</p></div>:<Loading/>;
+ else if(!w.data)content=<div className="setup-view" role="alert"><h1>{history?'We couldn’t load expense history.':'We couldn’t load your project.'}</h1><p>{w.error?.message||'Apply the database migration first.'}</p><button className="btn" onClick={()=>w.refresh().catch(()=>{})}>Try again</button></div>;
  else content=<AppContent onLogin={()=>setAuth(true)}/>;
  return <>{content}{auth&&<AuthDialog close={()=>setAuth(false)}/>}</>;
 }
 
 function AppContent({onLogin}:{onLogin:()=>void}){
  const w=useWorkspace(),data=w.data!,expenses=data.expenses,admin=w.admin,project=data.project;const path=useLocation().pathname;
- const [menu,setMenu]=useState(false),[modal,setModal]=useState(false),[selectedId,setSelectedId]=useState<string|null>(null),[editing,setEditing]=useState<Expense|null>(null),[search,setSearch]=useState(''),[category,setCategory]=useState('All categories'),[payment,setPayment]=useState('All statuses'),[range,setRange]=useState('All time'),[sort,setSort]=useState('Newest first'),[page,setPage]=useState(1),[toast,setToast]=useState(''),[refreshing,setRefreshing]=useState(false),[dateFrom,setDateFrom]=useState(''),[dateTo,setDateTo]=useState('');
+ const navigate=useNavigate();
+ const day=useKolkataDay(()=>{void w.refresh().catch(()=>{})});
+ const [menu,setMenu]=useState(false),[modal,setModal]=useState(false),[selectedId,setSelectedId]=useState<string|null>(null),[editing,setEditing]=useState<Expense|null>(null);
+ const [range,setRange]=useState('All time'),[toast,setToast]=useState(''),[refreshing,setRefreshing]=useState(false);
+ const [selectedPaymentId,setSelectedPaymentId]=useState<string>();
  const toastTimer=useRef<ReturnType<typeof setTimeout>>();const selected=expenses.find(e=>e.id===selectedId)||null;const title=nav.find(n=>n[0]===path)?.[1]||(path==='/activity'?'Change history':'Overview');
- useEffect(()=>()=>clearTimeout(toastTimer.current),[]);useEffect(()=>{if(!admin){setModal(false);setEditing(null);setSelectedId(null)}},[admin]);useEffect(()=>{setPage(1);setMenu(false);window.scrollTo({top:0,behavior:'instant' as ScrollBehavior})},[path]);
+ useEffect(()=>()=>clearTimeout(toastTimer.current),[]);useEffect(()=>{if(!admin){setModal(false);setEditing(null);setSelectedId(null)}},[admin]);useEffect(()=>{setMenu(false);window.scrollTo({top:0,behavior:'instant'})},[path]);
  useEffect(()=>{if(!menu)return;const escape=(e:KeyboardEvent)=>{if(e.key==='Escape')setMenu(false)};document.addEventListener('keydown',escape);return()=>document.removeEventListener('keydown',escape)},[menu]);
  const notify=(s:string)=>{clearTimeout(toastTimer.current);setToast(s);toastTimer.current=setTimeout(()=>setToast(''),5000)};
  const account=()=>{if(w.demo)w.togglePreview();else if(admin)w.signOut().catch(e=>notify(e.message));else onLogin()};
- const scoped=expenses.filter(e=>e.date>=periodStart(range));const {incurred:total,paid,pending}=totals(scoped);const contractorTotal=sumMoney(scoped.filter(e=>e.category==='Contractor costs').map(e=>e.amount));
- const filtered=scoped.filter(e=>(path!=='/contractors'||e.category==='Contractor costs')&&`${e.id} ${e.title} ${e.vendor} ${e.material}`.toLowerCase().includes(search.toLowerCase())&&(category==='All categories'||e.category===category)&&(payment==='All statuses'||payment==='Pending dues'&&e.paid<e.amount||payment==='Paid'&&e.paid>=e.amount||payment==='Partially paid'&&e.paid>0&&e.paid<e.amount||payment==='Unpaid'&&e.paid===0)&&(!dateFrom||e.date>=dateFrom)&&(!dateTo||e.date<=dateTo)).sort((a,b)=>sort==='Highest amount'?b.amount-a.amount:sort==='Oldest first'?a.date.localeCompare(b.date):b.date.localeCompare(a.date));
- const totalPages=Math.max(1,Math.ceil(filtered.length/8)),safePage=Math.min(page,totalPages);
- const exportCSV=()=>{downloadCsv('gharhisab-'+(w.demo?'demo-':'')+'expenses',[['ID','Date','Title','Category','Material','Quantity','Unit','Rate INR','Vendor','Invoice value INR','Paid INR','Pending dues INR','Description','Material lines'],...filtered.map(e=>[e.id,e.date,e.title,e.category,e.material,materialLines(e).length>1||materialLines(e).some(isAmountOnly)?'':e.quantity,e.unit,materialLines(e).length>1||materialLines(e).some(isAmountOnly)?'':e.rate,e.vendor,e.amount,e.paid,sumMoney([e.amount,-e.paid]),e.description,materialLines(e).map(i=>isAmountOnly(i)?`${i.material}: ${i.amount} (amount only)`:`${i.material}: ${i.quantity} ${i.unit} × ${i.rate} = ${i.amount}`).join('; ')])]);notify('Report downloaded')};
- const clearFilters=()=>{setSearch('');setCategory('All categories');setPayment('All statuses');setDateFrom('');setDateTo('');setPage(1)};
- const explore=(name:string)=>{clearFilters();setCategory(name==='Pending dues'?'All categories':name);setPayment(name==='Pending dues'?'Pending dues':'All statuses');window.location.hash='/expenses'};
- const viewSearch=(value:string)=>{clearFilters();setSearch(value);window.location.hash='/expenses'};
+ const reduced=useReducedMotion();
+ const entries=useMemo(()=>paymentsForExpenses(data.payments,expenses),[data.payments,expenses]);
+ const todayEntries=useMemo(()=>entries.filter(({payment})=>payment.date===day).sort(latestPayment),[entries,day]);
+ const arrivals=usePaymentArrivals(entries,day,path==='/',admin);
+ const withinPeriod=inPeriod(range,day);
+ const scoped=expenses.filter(e=>withinPeriod(e.date));
+ const reportTotals=totals(scoped);
+ const viewPending=()=>navigate(historyLink({status:'Pending dues'}));
+ const viewSearch=(value:string)=>navigate(historyLink({q:value}));
+ const refreshRecords=async()=>{
+  if(refreshing)return;
+  setRefreshing(true);
+  try{await w.refresh();notify('Your project is up to date')}
+  catch(error){notify(error instanceof Error?error.message:'Refresh failed')}
+  finally{setRefreshing(false)}
+ };
+ const openExpense=(expense:Expense,paymentId?:string)=>{setSelectedPaymentId(paymentId);setSelectedId(expense.id)};
+ const openPayment=({expense,payment}:PaymentEntry)=>openExpense(expense,payment.id);
  const openAdd=()=>{setEditing(null);setModal(true)};
- const materialTotals=summarizeMaterials(scoped);
- const allMaterialCost=sumMoney(materialTotals.map(m=>m.cost));
- return <MotionConfig reducedMotion="user"><div className="app"><aside className={menu?'sidebar open':'sidebar'} aria-label="Main navigation"><a className="brand" href="#/"><span className="brand-icon"><House size={23}/></span>Ghar<span>Hisab</span><i/></a><div className="project-switch"><span className="project-icon"><Building2 size={22}/></span><div><strong>{project.name}</strong><small>Residential project</small></div></div><p className="nav-label">WORKSPACE</p><nav>{nav.map(([url,label,Icon])=><NavLink end={url==='/'} to={url} key={url} onClick={()=>{setMenu(false);clearFilters()}}><Icon size={19}/>{label}{url==='/'&&<span className="active-dot"/>}</NavLink>)}{admin&&<NavLink to="/activity"><History size={19}/>Change history</NavLink>}</nav><div className="sidebar-bottom"><div className="home-note"><div className="little-house"><House size={30}/><span>✦</span></div><strong>Every brick, a little closer.</strong><p>A clear view of the home<br/>you’re building together.</p><span>Har Eent, Har Rupaye Ka Hisab.</span></div><button className="profile" onClick={account}><span className="avatar">{admin?'AM':<Eye size={18}/>}</span><span><strong>{admin?'Administrator':'Public viewer'}</strong><small>{w.demo?'Switch preview role':admin?'Sign out':'Admin login'}</small></span><LogOut size={16}/></button></div></aside>{menu&&<button className="nav-shade" aria-label="Close navigation" onClick={()=>setMenu(false)}/>}
- <main>{w.demo?<div className="demo-bar"><span><span className="demo-dot"/> DEMO MODE <span className="demo-desc">· Sample data only. Changes reset on reload.</span></span><button onClick={account}><Eye size={13}/>{admin?'Preview as viewer':'Preview as admin'}<ArrowUpRight size={13}/></button></div>:<div className="live-bar"><ShieldCheck size={12}/>Live project · {admin?'Administrator':'Public read-only view'}</div>}<header><div className="breadcrumb"><button className="icon-btn mobile-menu" aria-label="Open navigation" aria-expanded={menu} onClick={()=>setMenu(true)}><Menu size={22}/></button><House size={15}/><ChevronRight size={13}/><span>Workspace</span><ChevronRight size={13}/><strong>{title}</strong></div><HeaderTools expenses={expenses} admin={admin} toggleAdmin={account} openExpense={e=>setSelectedId(e.id)}/></header>
- <motion.div key={path} className="content" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} transition={{duration:.25}}><div className="page-heading"><div><div className="eyebrow">{project.name.toUpperCase()} <span>•</span> {format(new Date(today()+'T12:00:00'),'EEEE, d MMM yyyy').toUpperCase()}</div><h1>{path==='/'?'A clearer picture of home':title}<span className="heading-dot">.</span></h1><p>{path==='/'?'Every expense accounted for. Every step closer to your dream.':path==='/expenses'?'Every rupee has a story. Find it here.':path==='/materials'?'From delivery to the last brick. Know what’s on site.':'Your construction journey, thoughtfully organized.'}</p></div><div className="heading-actions"><button className={'icon-btn refresh '+(refreshing?'spinning':'')} disabled={refreshing} aria-label="Refresh records" onClick={async()=>{setRefreshing(true);try{await w.refresh();notify('Your project is up to date')}catch(e){notify(e instanceof Error?e.message:'Refresh failed')}finally{setRefreshing(false)}}}><RefreshCw size={17}/></button><label className="select-wrap"><CalendarIcon/><select aria-label="Date range" value={range} onChange={e=>{setRange(e.target.value);setPage(1)}}><option>All time</option><option>This month</option><option>Last 2 months</option></select></label>{admin&&<button className="btn primary" onClick={openAdd}><Plus size={17}/>Add expense</button>}</div></div>
+ return <MotionConfig reducedMotion="user"><div className="app"><aside className={menu?'sidebar open':'sidebar'} aria-label="Main navigation"><a className="brand" href="#/"><span className="brand-icon"><House size={22}/></span><span className="brand-name">GharHisab</span></a><div className="project-switch"><span className="project-icon"><Building2 size={19}/></span><div><strong>{project.name}</strong><small>{project.stage}</small></div></div><nav>{nav.map(([url,label,Icon])=><NavLink end={url==='/'} to={url} key={url} onClick={()=>setMenu(false)}><Icon size={19}/>{label}</NavLink>)}{admin&&<NavLink to="/activity"><History size={19}/>Change history</NavLink>}</nav><div className="sidebar-bottom"><button className="profile" onClick={account}><span className="avatar">{admin?'AM':<Eye size={18}/>}</span><span><strong>{admin?'Administrator':'Public viewer'}</strong><small>{w.demo?'Switch preview role':admin?'Sign out':'Admin login'}</small></span><LogOut size={16}/></button></div></aside>{menu&&<button className="nav-shade" aria-label="Close navigation" onClick={()=>setMenu(false)}/>}
+ <main>{w.demo&&<div className="demo-bar"><span>Demo mode<span className="demo-desc"> · Changes reset on reload</span></span><button onClick={account}><Eye size={14}/>{admin?'Preview as viewer':'Preview as admin'}</button></div>}
+ <header className="app-topbar">
+  <div className="breadcrumb">
+   <button className="icon-btn mobile-menu" aria-label="Open navigation" aria-expanded={menu} onClick={()=>setMenu(true)}><Menu size={21}/></button>
+   <span className="mobile-wordmark">GharHisab</span>
+   <span className="desktop-crumb">Workspace</span><ChevronRight className="desktop-crumb" size={14} aria-hidden="true"/><strong className="desktop-crumb">{title}</strong>
+  </div>
+  <div className="topbar-meta">
+   {!w.demo&&<div className="live-bar"><ShieldCheck size={15} aria-hidden="true"/><span>Live<span className="live-role"> project · {admin?'Administrator':'Public read-only view'}</span></span></div>}
+   <HeaderTools expenses={expenses} admin={admin} toggleAdmin={account} openExpense={openExpense}/>
+  </div>
+ </header>
+ <motion.div key={path} className="content" initial={reduced?false:{opacity:0,y:7}} animate={{opacity:1,y:0}} transition={{duration:reduced?0:.22,ease:'easeOut'}}><div className={path==='/'?'page-heading overview-page-heading':'page-heading'}><div className="page-heading-copy"><h1>{title}</h1><p className="project-label">{project.name}{path==='/'&&<> <span aria-hidden="true">/</span> <time dateTime={day}>{displayDate(day)}</time></>}</p></div><div className="heading-actions"><button className={'icon-btn refresh '+(refreshing?'spinning':'')} disabled={refreshing} aria-label="Refresh records" onClick={refreshRecords}><RefreshCw size={17}/></button>
+ {path==='/reports'&&<label className="select-wrap"><CalendarIcon/><select aria-label="Date range" value={range} onChange={event=>setRange(event.target.value)}>{dateRanges.map(option=><option key={option}>{option}</option>)}</select></label>}{admin&&<button className="btn primary" onClick={openAdd}><Plus size={17}/>Add expense</button>}</div></div>
  <Suspense fallback={<Loading/>}>
- {path==='/'&&<><OverviewHighlights expenses={scoped} admin={admin} range={range} onExplore={explore}/><Charts expenses={scoped}/><FundingAnalytics expenses={scoped} admin={admin} range={range}/><section className="card recent"><div className="section-heading"><div><h3>Recent transactions <span className="count">{scoped.length}</span></h3><p>The latest building blocks of your home</p></div><NavLink className="text-link" to="/expenses" onClick={clearFilters}>View all transactions<ArrowUpRight size={15}/></NavLink></div><ExpenseTable rows={[...scoped].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8)} admin={admin} open={e=>setSelectedId(e.id)}/></section><div className="bottom-grid"><section className="card top-materials"><div className="section-heading"><div><h3>Top material purchase costs</h3><p>Purchase costs in the selected period</p></div><NavLink to="/materials" aria-label="View materials"><ArrowUpRight size={19}/></NavLink></div>{materialTotals.slice(0,5).map((m,i)=><div className="material-rank" key={m.name+m.unit}><span className="rank">0{i+1}</span><div><div><strong>{m.name}</strong><b>{money(m.cost)}</b></div><small>{m.amountOnly?'Amount-only purchase':`${m.quantity.toLocaleString('en-IN')} ${m.unit} purchased`} <span>{allMaterialCost?(m.cost/allMaterialCost*100).toFixed(1):0}%</span></small><div className="progress thin"><i style={{width:`${m.cost/materialTotals[0].cost*100}%`}}/></div></div></div>)}{!materialTotals.length&&<div className="empty">No material purchases yet.</div>}</section><section className="card activity"><div className="section-heading"><div><h3>Around the site</h3><p>Small updates. Real progress.</p></div><span className="live-label"><i/>Activity</span></div>{(admin&&data.activity.length?data.activity.slice(0,4).map(a=>({id:a.id,title:a.table_name.replaceAll('_',' ')+' '+({INSERT:'added',UPDATE:'updated',DELETE:'removed'}[a.action]||a.action.toLowerCase()),sub:new Date(a.created_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})})):expenses.slice(0,4).map(e=>({id:e.id,title:e.title,sub:e.date+' · '+money(e.amount)}))).map(a=><div className="activity-row" key={a.id}><span className="activity-icon blue"><Package size={16}/></span><div><strong>{a.title}</strong><p>{a.sub}</p></div></div>)}{!expenses.length&&!data.activity.length&&<div className="empty">Your project activity will appear here.</div>}<div className="site-progress"><House size={21}/><div><strong>{project.stage}</strong><small>Recorded construction stage</small></div><NavLink to="/project"><ChevronRight size={18}/></NavLink></div></section></div></>}
- {(path==='/expenses'||path==='/reports'||path==='/contractors')&&<><div className="summary-row"><div><small>Total expenses · paid</small><strong className="green-text">{money(path==='/contractors'?totals(scoped.filter(e=>e.category==='Contractor costs')).paid:paid)}</strong></div><div><small>Total invoice value</small><strong>{money(path==='/contractors'?contractorTotal:total)}</strong></div><div><small>Pending dues</small><strong className="amber-text">{money(path==='/contractors'?totals(scoped.filter(e=>e.category==='Contractor costs')).pending:pending)}</strong></div><button className="btn" onClick={exportCSV}><Download size={16}/>Export CSV</button><button className="btn" onClick={()=>window.print()}>Print report</button></div>{path==='/reports'?<><Charts expenses={scoped} trend basis="incurred"/><Reports expenses={scoped} range={range}/></>:<section className="card"><div className="filters"><label className="search"><Search size={17}/><input aria-label="Search transactions" placeholder="Search expenses, vendors or materials…" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></label><select aria-label="Category" value={category} onChange={e=>{setCategory(e.target.value);setPage(1)}}>{['All categories','Materials','Contractor costs','Other'].map(x=><option key={x}>{x}</option>)}</select><select aria-label="Payment status" value={payment} onChange={e=>{setPayment(e.target.value);setPage(1)}}>{['All statuses','Pending dues','Paid','Partially paid','Unpaid'].map(x=><option key={x}>{x}</option>)}</select><select aria-label="Sort" value={sort} onChange={e=>{setSort(e.target.value);setPage(1)}}>{['Newest first','Oldest first','Highest amount'].map(x=><option key={x}>{x}</option>)}</select><label className="date-filter">From<input aria-label="From date" type="date" value={dateFrom} onChange={e=>{setDateFrom(e.target.value);setPage(1)}}/></label><label className="date-filter">To<input aria-label="To date" type="date" value={dateTo} min={dateFrom} onChange={e=>{setDateTo(e.target.value);setPage(1)}}/></label></div><ExpenseTable rows={filtered.slice((safePage-1)*8,safePage*8)} admin={admin} open={e=>setSelectedId(e.id)} clear={clearFilters}/><div className="pagination"><span>{filtered.length} records · Page {safePage} of {totalPages}</span><div><button className="btn" disabled={safePage===1} onClick={()=>setPage(safePage-1)}>Previous</button><button className="btn" disabled={safePage>=totalPages} onClick={()=>setPage(safePage+1)}>Next</button></div></div></section>}</>}
+ {path==='/'&&<><OverviewHighlights data={data} day={day} range={range} setRange={setRange} onPending={viewPending} entries={entries} todayEntries={todayEntries} arrivals={arrivals} openPayment={openPayment}/><FundingAnalytics expenses={scoped} admin={admin} range={range}/></>}
+ {(path==='/expenses'||path==='/contractors')&&<LedgerHistory expenses={expenses} entries={entries} day={day} contractor={path==='/contractors'} demo={w.demo} admin={admin} error={w.error} open={openExpense} refresh={refreshRecords} notify={notify}/>}
+ {path==='/reports'&&<>
+  <div className="summary-row">
+   <div><small>Amount paid</small><strong className="green-text">{money(reportTotals.paid)}</strong></div>
+   <div><small>Invoice value</small><strong>{money(reportTotals.incurred)}</strong></div>
+   <div><small>Pending payments</small><strong className="amber-text">{money(reportTotals.pending)}</strong></div>
+   <button className="btn" onClick={()=>{exportExpenseCsv(scoped,w.demo);notify('Report downloaded')}}><Download size={16}/>Export CSV</button>
+   <button className="btn" onClick={()=>window.print()}>Print report</button>
+  </div>
+  <Charts expenses={scoped} trend basis="incurred"/><Reports expenses={scoped} range={range}/>
+ </>}
  {path==='/materials'&&<MaterialsPage view={viewSearch}/>}{path==='/vendors'&&<VendorsPage view={viewSearch}/>}{path==='/project'&&<ProjectPage/>}{path==='/activity'&&(admin?<ActivityPage/>:<div className="card empty">Change history is available only to the administrator.</div>)}
- </Suspense><footer><span><House size={13}/>GharHisab <i>·</i> Built on clarity. Made for family.</span><span><ShieldCheck size={13}/>{w.demo?'Demo mode':admin?'Administrator':'Public read-only view'}</span></footer></motion.div></main>
- <nav className="mobile-bottom-nav" aria-label="Mobile navigation"><NavLink end to="/" onClick={clearFilters}><LayoutDashboard size={21}/><span>Home</span></NavLink><NavLink to="/expenses" onClick={clearFilters}><Receipt size={21}/><span>Expenses</span></NavLink>{admin&&<button className="mobile-add" onClick={openAdd} aria-label="Add expense"><Plus size={24}/><span>Add</span></button>}<NavLink to="/materials"><Boxes size={21}/><span>Materials</span></NavLink><button onClick={()=>setMenu(true)} aria-label="More pages"><Ellipsis size={23}/><span>More</span></button></nav>
- <AnimatePresence mode="wait">{modal&&admin?<ExpenseForm key={editing?.id||'new'} editing={editing} close={()=>{setModal(false);setEditing(null)}} save={async(input,key)=>{await w.saveExpense(input,editing,key);setModal(false);setEditing(null);notify('Expense saved. All summaries are up to date.')}}/>:selected?<ExpenseDetails key={selected.id} expense={selected} admin={admin} close={()=>setSelectedId(null)} edit={()=>{setEditing(selected);setSelectedId(null);setModal(true)}} remove={async()=>{if(confirm('Delete this expense and its payment records?')){try{await w.remove('expenses',selected.id,selected.proof?.path);setSelectedId(null);notify('Expense deleted')}catch(e){notify(e instanceof Error?e.message:'Delete failed')}}}}/>:null}</AnimatePresence><AnimatePresence>{toast&&<motion.div className="toast" role="status" key={toast} initial={{opacity:0,y:20,x:'-50%'}} animate={{opacity:1,y:0,x:'-50%'}} exit={{opacity:0,y:10,x:'-50%'}}><CheckCircle2 size={19}/><span>{toast}</span><button aria-label="Dismiss notification" onClick={()=>{clearTimeout(toastTimer.current);setToast('')}}><X size={15}/></button></motion.div>}</AnimatePresence></div></MotionConfig>
+ </Suspense><footer><span><House size={13}/>GharHisab </span><span><ShieldCheck size={13}/>{w.demo?'Demo mode':admin?'Administrator':'Public read-only view'}</span></footer></motion.div></main>
+ <nav className="mobile-bottom-nav" aria-label="Mobile navigation"><NavLink end to="/"><LayoutDashboard size={21}/><span>Home</span></NavLink><NavLink to="/expenses"><Receipt size={21}/><span>Expenses</span></NavLink>{admin&&<button className="mobile-add" onClick={openAdd} aria-label="Add expense"><Plus size={24}/><span>Add</span></button>}<NavLink to="/materials"><Boxes size={21}/><span>Materials</span></NavLink><button onClick={()=>setMenu(true)} aria-label="More pages"><Ellipsis size={23}/><span>More</span></button></nav>
+ <AnimatePresence mode="wait">{modal&&admin?<ExpenseForm key={editing?.id||'new'} editing={editing} close={()=>{setModal(false);setEditing(null)}} save={async(input,key)=>{await w.saveExpense(input,editing,key);setModal(false);setEditing(null);notify('Expense saved.')}}/>:selected?<ExpenseDetails key={selected.id} expense={selected} paymentId={selectedPaymentId} admin={admin} onPaymentSaved={()=>notify('Payment saved.')} close={()=>setSelectedId(null)} edit={()=>{setEditing(selected);setSelectedId(null);setModal(true)}} remove={async()=>{if(confirm('Delete this expense and its payment records?')){try{await w.remove('expenses',selected.id,selected.proof?.path);setSelectedId(null);notify('Expense deleted')}catch(e){notify(e instanceof Error?e.message:'Delete failed')}}}}/>:null}</AnimatePresence><AnimatePresence>{toast&&<motion.div className="toast" role="status" key={toast} initial={{opacity:0,y:20,x:'-50%'}} animate={{opacity:1,y:0,x:'-50%'}} exit={{opacity:0,y:10,x:'-50%'}}><CheckCircle2 size={19}/><span>{toast}</span><button aria-label="Dismiss notification" onClick={()=>{clearTimeout(toastTimer.current);setToast('')}}><X size={15}/></button></motion.div>}</AnimatePresence></div></MotionConfig>
 }
 function CalendarIcon(){return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>}
 const queryClient=new QueryClient();

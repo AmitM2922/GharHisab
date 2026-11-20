@@ -4,3 +4,19 @@
 @media(max-width:360px){.polished-expense .transaction-body{padding:19px 16px}.polished-expense .transaction-header{padding-left:16px;padding-right:16px}.expense-section-nav{padding-left:16px;padding-right:16px;gap:5px}.expense-section-nav button{gap:6px;font-size:11px}.polished-expense .transaction-amount>h3{font-size:32px}.polished-expense .payment-duo strong{font-size:20px}.expense-info-grid dd{font-size:12px}.expense-full-reference dd{font-size:10px}.polished-expense .transaction-footer{padding-left:16px;padding-right:16px}}
 @media print{.expense-section-nav{display:none}.expense-detail-anchor{scroll-margin:0}}
 .amount-only-cost{font-size:30px;letter-spacing:-1px;font-weight:600;margin:25px 0 15px;overflow-wrap:anywhere}.amount-only-cost>small{display:block;font-size:10px;font-weight:400;letter-spacing:0;margin-top:8px}.amount-only-inventory>.btn{margin-top:21px}
+.expense-section-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 3px;border-radius:5px;background:var(--leaf);color:var(--forest-dark);font-size:.73rem;font-variant-numeric:tabular-nums}
+.expense-section-nav .active .expense-section-count{background:var(--surface)}
+.expense-table .expense-record-meta{display:flex;gap:.2rem .5rem;flex-wrap:wrap;align-items:baseline}
+.expense-record-meta span+span::before{content:'·';margin-right:.5rem;color:var(--muted)}
+.payment-proof-section{margin-bottom:20px}
+.payment-proof-groups{display:grid;gap:10px;list-style:none;padding:0;margin:12px 0 0}
+.payment-proof-group{padding:13px;border:1px solid var(--line);background:var(--canvas);border-radius:12px;min-width:0}
+.payment-proof-date{display:flex;justify-content:space-between;gap:8px;font-size:.93rem;color:var(--ink);font-variant-numeric:tabular-nums}
+.payment-proof-group>p{margin-top:5px;font-size:.86rem}
+.payment-proof-group .payment-image-label{color:var(--muted);font-size:.83rem}
+.receipt-card{margin-top:12px;padding:10px;border:1px solid #e3eaf4;border-radius:14px;background:#fff}
+.receipt-card .proof-file{margin:0 0 8px}
+.receipt-card .proof-file strong{font-size:12px;color:#405575}
+.receipt-card .proof-file .icon-btn{width:44px;height:44px;color:#365888}
+.receipt-card .proof-image{background:#f4f7fc}
+.receipt-card .proof-expand{min-height:44px;padding:0 10px;font-size:12px;color:#365888}

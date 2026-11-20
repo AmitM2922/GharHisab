@@ -1,14 +1,46 @@
 import {useState} from 'react';
-import {Plus,Pencil,CreditCard,ImagePlus,Download,Image,X} from 'lucide-react';
+import {Plus,Pencil,CreditCard,ImagePlus} from 'lucide-react';
 import {useWorkspace} from '../app/Workspace';
-import {Expense,money,PaymentProof} from '../data';
+import {Expense,money} from '../data';
 import {Payment} from '../types';
 import PaymentEditor from './PaymentEditor';
-function PaymentImages({proofs,date}:{proofs:PaymentProof[];date:string}){
- const [expanded,setExpanded]=useState<number|null>(null);
- return <div className="payment-saved-images"><div className="payment-image-label"><Image size={12}/>{proofs.length} {proofs.length===1?'image':'images'} attached to this payment</div><div className="payment-image-thumbnails">{proofs.map((proof,i)=><div key={proof.path||proof.clientId||proof.id||i}><button type="button" className="payment-image-thumb" aria-label={`Preview ${proof.name} for payment on ${date}`} onClick={()=>setExpanded(expanded===i?null:i)}>{proof.url?<img src={proof.url} alt={`Payment image ${i+1} on ${date}`}/>:<Image size={22}/>}</button><span title={proof.name}>{proof.name}</span></div>)}</div>{expanded!==null&&proofs[expanded]&&<div className="payment-image-expanded"><div><strong>{proofs[expanded].name}</strong>{proofs[expanded].url&&<a className="icon-btn" href={proofs[expanded].url} download={proofs[expanded].name} aria-label="Download payment image"><Download size={14}/></a>}<button className="icon-btn" type="button" aria-label="Close image preview" onClick={()=>setExpanded(null)}><X size={14}/></button></div>{proofs[expanded].url?<img src={proofs[expanded].url} alt={`Expanded payment image on ${date}`}/>:<p className="muted">Preview unavailable. Refresh the project to load the private image again.</p>}</div>}</div>
-}
-export default function Payments({expense}:{expense:Expense}){
- const w=useWorkspace();const [editing,setEditing]=useState<Payment|null|undefined>();const payments=w.data!.payments.filter(p=>p.expense_id===expense.id).sort((a,b)=>b.date.localeCompare(a.date));
- return <section className="transaction-section payment-timeline"><div className="detail-section-title"><h3>Payment history</h3>{w.admin&&<button type="button" className="btn" onClick={()=>setEditing(null)} disabled={expense.paid>=expense.amount}><Plus size={14}/>Record payment</button>}</div><p className="payment-history-hint">Each payment keeps its own date, amount and proof.</p>{payments.length?payments.map(p=><div className="payment-history-row" key={p.id} data-payment-id={p.id}><span className="payment-row-symbol"><CreditCard size={16}/></span><div className="payment-row-content"><div className="payment-row-heading"><strong>{money(p.amount)}</strong>{w.admin&&<button type="button" className="icon-btn" aria-label="Correct payment" title="Edit payment details or images" onClick={()=>setEditing(p)}><Pencil size={14}/></button>}</div><small>{p.date} · {p.method}</small>{w.admin&&p.reference&&<small>Reference: {p.reference}</small>}{w.admin&&p.notes&&<p className="payment-private-notes">{p.notes}</p>}{w.admin&&((p.proofs?.length||0)>0?<PaymentImages proofs={p.proofs!} date={p.date}/>:<button type="button" className="payment-attach-link" onClick={()=>setEditing(p)}><ImagePlus size={13}/>Attach payment images</button>)}</div></div>):<p className="muted">No payments recorded yet.</p>}{editing!==undefined&&w.admin&&<PaymentEditor expense={expense} record={editing} close={()=>setEditing(undefined)}/>}</section>
+import PaymentImages from './PaymentImages';
+import {displayDate} from '../lib/history-filters';
+
+type Props={
+ expense:Expense;
+ payments:Payment[];
+ selectedId?:string;
+ showImages:boolean;
+ onSaved:()=>void;
+};
+
+export default function Payments({expense,payments,selectedId,showImages,onSaved}:Props){
+ const w=useWorkspace();
+ const [editing,setEditing]=useState<Payment|null|undefined>();
+
+ return <section className="transaction-section payment-timeline">
+  <div className="detail-section-title">
+   <div><h3>Payment history</h3>
+    {payments.length>0&&<p className="payment-history-hint">{payments.length} {payments.length===1?'payment':'payments'} recorded</p>}
+   </div>
+   {w.admin&&<button type="button" className="btn" onClick={()=>setEditing(null)} disabled={expense.paid>=expense.amount}><Plus size={14}/>Record payment</button>}
+  </div>
+  {payments.length?payments.map(payment=><div className="payment-history-row" key={payment.id} data-payment-id={payment.id} data-selected={payment.id===selectedId||undefined}>
+   <span className="payment-row-symbol"><CreditCard size={16}/></span>
+   <div className="payment-row-content">
+    <div className="payment-row-heading"><strong>{money(payment.amount)}</strong>
+     {w.admin&&<button type="button" className="icon-btn" aria-label="Correct payment" title="Edit payment details or images" onClick={()=>setEditing(payment)}><Pencil size={14}/></button>}
+    </div>
+    <small><time dateTime={payment.date}>{displayDate(payment.date)}</time> · {payment.method}</small>
+    {payment.id===selectedId&&<small>Paid to {expense.vendor}</small>}
+    {w.admin&&payment.reference&&<small>Reference: {payment.reference}</small>}
+    {w.admin&&payment.notes&&<p className="payment-private-notes">{payment.notes}</p>}
+    {payment.proofs?.length
+     ? showImages&&<PaymentImages proofs={payment.proofs} date={payment.date}/>
+     : w.admin&&<button type="button" className="payment-attach-link" onClick={()=>setEditing(payment)}><ImagePlus size={13}/>Attach payment images</button>}
+   </div>
+  </div>):<p className="muted">No payments recorded yet.</p>}
+  {editing!==undefined&&w.admin&&<PaymentEditor expense={expense} record={editing} onSaved={onSaved} close={()=>setEditing(undefined)}/>}
+ </section>;
 }
